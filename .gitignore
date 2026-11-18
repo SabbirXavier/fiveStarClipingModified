@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Local tools & Python virtual environments
+.tools/
+
+# User data, downloads, projects, exported clips, cached models, and OAuth tokens/secrets
+data/
+*.tmp
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
