@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node dist/server.mjs",
+    "stop": "node dist/stop.mjs",
     "setup": "node dist/setup.mjs",
     "guide": "node dist/setup-guide.mjs"
   },
