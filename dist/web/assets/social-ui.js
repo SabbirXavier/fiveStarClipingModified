@@ -1333,27 +1333,26 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                 jsxs("div", {
                   style: {
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "12px 16px",
-                    flexWrap: "wrap",
-                    gap: 10,
+                    flexDirection: "column",
+                    gap: 12,
+                    padding: "14px 16px",
                   },
                   children: [
                     jsxs("div", {
-                      style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1 },
+                      style: { display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" },
                       onClick: () => setYtOpen((v) => !v),
                       children: [
-                        jsx("span", { style: { fontSize: 18 }, children: "🔴" }),
+                        jsx("span", { style: { fontSize: 20, lineHeight: 1.2, marginTop: 1, flexShrink: 0 }, children: "🔴" }),
                         jsxs("div", {
+                          style: { flex: 1, minWidth: 0 },
                           children: [
-                            jsx("span", {
-                              style: { fontSize: 14.5, fontWeight: 600, color: "var(--text, #f1f5f9)" },
+                            jsx("div", {
+                              style: { fontSize: 14.5, fontWeight: 600, color: "var(--text, #f1f5f9)", lineHeight: 1.35 },
                               children: "YouTube Shorts Setup Guide (Data API v3)",
                             }),
                             jsx("p", {
                               className: "note",
-                              style: { margin: "2px 0 0 0", fontSize: 12 },
+                              style: { margin: "3px 0 0 0", fontSize: 12.5, lineHeight: 1.4 },
                               children: "Configure Google Cloud OAuth 2.0 Web Client to upload Shorts directly.",
                             }),
                           ],
@@ -1362,22 +1361,22 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                     }),
                     jsxs("div", {
                       className: "row",
-                      style: { gap: 8, alignItems: "center" },
+                      style: { gap: 8, alignItems: "center", flexWrap: "wrap" },
                       children: [
                         jsx("a", {
                           href: "/youtube-guide.html",
                           target: "_blank",
                           rel: "noreferrer",
                           className: "btn btn-small btn-primary",
-                          style: { textDecoration: "none", fontSize: 12, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5 },
+                          style: { textDecoration: "none", fontSize: 12.5, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 },
                           children: ["Open Guide in new tab ↗"],
                         }),
                         jsx("button", {
                           type: "button",
                           className: "btn btn-small",
                           onClick: () => setYtOpen((v) => !v),
-                          style: { fontSize: 12, padding: "5px 10px" },
-                          children: ytOpen ? "▲ Hide" : "▼ Preview steps",
+                          style: { fontSize: 12.5, padding: "5px 10px" },
+                          children: ytOpen ? "▲ Hide steps" : "▼ Preview steps",
                         }),
                       ],
                     }),
@@ -1524,27 +1523,26 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                 jsxs("div", {
                   style: {
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "12px 16px",
-                    flexWrap: "wrap",
-                    gap: 10,
+                    flexDirection: "column",
+                    gap: 12,
+                    padding: "14px 16px",
                   },
                   children: [
                     jsxs("div", {
-                      style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1 },
+                      style: { display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" },
                       onClick: () => setIgOpen((v) => !v),
                       children: [
-                        jsx("span", { style: { fontSize: 18 }, children: "🟣" }),
+                        jsx("span", { style: { fontSize: 20, lineHeight: 1.2, marginTop: 1, flexShrink: 0 }, children: "🟣" }),
                         jsxs("div", {
+                          style: { flex: 1, minWidth: 0 },
                           children: [
-                            jsx("span", {
-                              style: { fontSize: 14.5, fontWeight: 600, color: "var(--text, #f1f5f9)" },
+                            jsx("div", {
+                              style: { fontSize: 14.5, fontWeight: 600, color: "var(--text, #f1f5f9)", lineHeight: 1.35 },
                               children: "Instagram Reels Setup Guide (Graph API)",
                             }),
                             jsx("p", {
                               className: "note",
-                              style: { margin: "2px 0 0 0", fontSize: 12 },
+                              style: { margin: "3px 0 0 0", fontSize: 12.5, lineHeight: 1.4 },
                               children: "Configure Meta Graph API User Token to publish Reels directly.",
                             }),
                           ],
@@ -1553,22 +1551,22 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                     }),
                     jsxs("div", {
                       className: "row",
-                      style: { gap: 8, alignItems: "center" },
+                      style: { gap: 8, alignItems: "center", flexWrap: "wrap" },
                       children: [
                         jsx("a", {
                           href: "/instagram-guide.html",
                           target: "_blank",
                           rel: "noreferrer",
                           className: "btn btn-small btn-primary",
-                          style: { textDecoration: "none", fontSize: 12, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5 },
+                          style: { textDecoration: "none", fontSize: 12.5, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 },
                           children: ["Open Guide in new tab ↗"],
                         }),
                         jsx("button", {
                           type: "button",
                           className: "btn btn-small",
                           onClick: () => setIgOpen((v) => !v),
-                          style: { fontSize: 12, padding: "5px 10px" },
-                          children: igOpen ? "▲ Hide" : "▼ Preview steps",
+                          style: { fontSize: 12.5, padding: "5px 10px" },
+                          children: igOpen ? "▲ Hide steps" : "▼ Preview steps",
                         }),
                       ],
                     }),
