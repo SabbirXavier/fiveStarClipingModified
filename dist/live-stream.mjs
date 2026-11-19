@@ -85,10 +85,10 @@ async function extractYouTubeLiveDashSegment({
   if (!isNaN(qNum) && qNum >= 1440) {
     formatSelector = `bv*[height<=${qNum}]+ba/bv*[height<=${qNum}]/best`;
   } else if (!isNaN(qNum) && qNum > 0) {
-    formatSelector = `bv*[height<=${qNum}][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=${qNum}]+ba/best`;
+    formatSelector = `bv*[height<=${qNum}]+ba/bv*[height<=${qNum}]/best`;
   } else {
-    // Best: 1080p+ AVC1 or Best available
-    formatSelector = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*+ba/best";
+    // Best: Highest resolution available on YouTube (1440p / 4K / 1080p60)
+    formatSelector = "bv*+ba/best";
   }
 
   const gArgs = [

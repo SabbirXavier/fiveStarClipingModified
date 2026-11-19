@@ -874,6 +874,30 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [playhead, setPlayhead] = useState(() => start);
     const [dragging, setDragging] = useState(null);
     const [isPlayingLoop, setIsPlayingLoop] = useState(false);
+    const [selectedQuality, setSelectedQuality] = useState(() => {
+      try {
+        return localStorage.getItem("fivestar_preferred_quality") || "best";
+      } catch {
+        return "best";
+      }
+    });
+
+    const handleQualityChange = (val) => {
+      setSelectedQuality(val);
+      try {
+        localStorage.setItem("fivestar_preferred_quality", val);
+      } catch {}
+      if (typeof onTrimChange === "function") {
+        onTrimChange({
+          start,
+          end,
+          startFormatted: formatSec(start, totalDuration >= 3600),
+          endFormatted: formatSec(end, totalDuration >= 3600),
+          duration: end - start,
+          quality: val
+        });
+      }
+    };
 
     const trackRef = useRef(null);
     const loopTimerRef = useRef(null);
@@ -1336,6 +1360,38 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                     title: "Set 60s duration",
                     onClick: () => updateTrim(start, start + 60),
                     children: "60s"
+                  }),
+                  jsxs("div", {
+                    className: "trim-quality-wrap",
+                    style: { display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 6 },
+                    children: [
+                      jsx("span", {
+                        style: { fontSize: "12px", color: "#cdbfe0", fontWeight: 700, whiteSpace: "nowrap" },
+                        children: "🎚️ Quality:"
+                      }),
+                      jsx("select", {
+                        className: "btn btn-small",
+                        value: selectedQuality,
+                        onChange: (e) => handleQualityChange(e.target.value),
+                        style: {
+                          background: "rgba(255, 255, 255, 0.08)",
+                          borderColor: "rgba(255, 255, 255, 0.18)",
+                          color: "#ffffff",
+                          fontWeight: 700,
+                          fontSize: "12px",
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          cursor: "pointer"
+                        },
+                        children: [
+                          jsx("option", { value: "best", style: { background: "#18181b", color: "#fff" }, children: "✨ Best (1440p/4K Highest)" }),
+                          jsx("option", { value: "1440", style: { background: "#18181b", color: "#fff" }, children: "1440p60 HD (2K)" }),
+                          jsx("option", { value: "1080", style: { background: "#18181b", color: "#fff" }, children: "1080p60 HD" }),
+                          jsx("option", { value: "720", style: { background: "#18181b", color: "#fff" }, children: "720p60 HD" }),
+                          jsx("option", { value: "480", style: { background: "#18181b", color: "#fff" }, children: "480p SD (Fast)" })
+                        ]
+                      })
+                    ]
                   })
                 ]
               }),
@@ -1361,7 +1417,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                     },
                     disabled: !isDurationGood,
                     onClick: () => {
-                      onApplyChanges({ start, end, duration: clipDuration });
+                      onApplyChanges({ start, end, duration: clipDuration, quality: selectedQuality });
                     },
                     children: applyLabel
                   }),
@@ -1371,7 +1427,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                     style: { minWidth: "120px" },
                     disabled: !isDurationGood,
                     onClick: () => {
-                      onAddMoment?.({ start, end, duration: clipDuration });
+                      onAddMoment?.({ start, end, duration: clipDuration, quality: selectedQuality });
                     },
                     children: addLabel
                   })
