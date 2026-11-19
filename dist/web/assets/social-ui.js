@@ -103,7 +103,7 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
     return { status, setStatus, loading, refresh };
   }
 
-  function SocialSettingsSection({ onYouTubeConnected } = {}) {
+  function SocialSettingsSection({ onYouTubeConnected, onInstagramConnected } = {}) {
     const { status, setStatus, refresh } = useSocialStatus();
 
     const [ytClientId, setYtClientId] = useState("");
@@ -118,6 +118,8 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
     const initialized = useRef(false);
     const onConnectedRef = useRef(onYouTubeConnected);
     onConnectedRef.current = onYouTubeConnected;
+    const onIgConnectedRef = useRef(onInstagramConnected);
+    onIgConnectedRef.current = onInstagramConnected;
 
     useEffect(() => {
       if (!status || initialized.current) return;
@@ -131,6 +133,13 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
         typeof onConnectedRef.current === "function"
       ) {
         onConnectedRef.current(status.youtube.channelHandle, { onlyIfEmpty: true });
+      }
+      if (
+        status.instagram?.connected &&
+        status.instagram?.username &&
+        typeof onIgConnectedRef.current === "function"
+      ) {
+        onIgConnectedRef.current(status.instagram.username, { onlyIfEmpty: true });
       }
     }, [status]);
 
@@ -248,6 +257,9 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
         setIgUserId(next.instagram?.igUserId || igUserId);
         setStatus(next);
         notifySocialUpdated(next);
+        if (next.instagram?.username && typeof onIgConnectedRef.current === "function") {
+          onIgConnectedRef.current(next.instagram.username);
+        }
         toast(
           next.instagram?.username
             ? `Instagram connected: @${next.instagram.username}`
@@ -1199,9 +1211,403 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
     });
   }
 
+  function SocialIntegrationHelp() {
+    const [ytOpen, setYtOpen] = useState(false);
+    const [igOpen, setIgOpen] = useState(false);
+    const redirectUri = "http://127.0.0.1:8765/oauth/youtube/callback";
+
+    const cardStyle = {
+      border: "1px solid var(--line-strong, rgba(255,255,255,0.12))",
+      borderRadius: "var(--r-sm, 10px)",
+      background: "var(--surface-2, rgba(255,255,255,0.03))",
+      overflow: "hidden",
+      transition: "all 0.2s ease",
+    };
+
+    const headerBtnStyle = {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: "12px 16px",
+      background: "transparent",
+      border: "none",
+      color: "inherit",
+      cursor: "pointer",
+      textAlign: "left",
+      fontSize: 14.5,
+      fontWeight: 600,
+    };
+
+    const contentStyle = {
+      padding: "0 16px 16px 16px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      fontSize: 13.5,
+      color: "var(--text-soft, #cbd5e1)",
+      lineHeight: 1.55,
+    };
+
+    const stepNumStyle = {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: 20,
+      height: 20,
+      borderRadius: "50%",
+      background: "var(--primary, #8b5cf6)",
+      color: "#fff",
+      fontSize: 11.5,
+      fontWeight: 700,
+      marginRight: 8,
+      flexShrink: 0,
+      marginTop: 2,
+    };
+
+    return jsxs("div", {
+      className: "group",
+      style: { marginTop: 22, borderTop: "1px solid var(--line)", paddingTop: 18 },
+      children: [
+        jsxs("div", {
+          className: "group-head",
+          style: { alignItems: "center", marginBottom: 12, display: "flex", justifyContent: "space-between" },
+          children: [
+            jsxs("div", {
+              children: [
+                jsx("h3", {
+                  style: { display: "flex", alignItems: "center", gap: 8 },
+                  children: "Integration Instructions (YouTube & Instagram)",
+                }),
+                jsx("p", {
+                  className: "note",
+                  style: { margin: "4px 0 0 0" },
+                  children:
+                    "Connect your accounts once in Settings (⚙️) to upload YouTube Shorts and Instagram Reels directly from Fivestar.",
+                }),
+              ],
+            }),
+            jsx("button", {
+              type: "button",
+              className: "btn btn-small",
+              onClick: openSettingsModal,
+              children: "Open Settings ⚙️",
+            }),
+          ],
+        }),
+
+        jsxs("div", {
+          className: "stack",
+          style: { gap: 10 },
+          children: [
+            // ---- YouTube Guide Card ----
+            jsxs("div", {
+              style: cardStyle,
+              children: [
+                jsxs("button", {
+                  type: "button",
+                  style: headerBtnStyle,
+                  onClick: () => setYtOpen((v) => !v),
+                  children: [
+                    jsxs("span", {
+                      style: { display: "flex", alignItems: "center", gap: 8 },
+                      children: [
+                        jsx("span", { style: { fontSize: 17 }, children: "🔴" }),
+                        "How to set up YouTube Data API v3 (Direct Shorts Upload)",
+                      ],
+                    }),
+                    jsx("span", {
+                      style: { fontSize: 13, color: "var(--text-muted, #94a3b8)" },
+                      children: ytOpen ? "▲ Hide" : "▼ Show steps",
+                    }),
+                  ],
+                }),
+                ytOpen &&
+                  jsxs("div", {
+                    style: contentStyle,
+                    children: [
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "1" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Create Google Cloud Project: " }),
+                              "Go to ",
+                              jsx("a", {
+                                href: "https://console.cloud.google.com/",
+                                target: "_blank",
+                                rel: "noreferrer",
+                                style: { color: "#60a5fa", textDecoration: "underline" },
+                                children: "Google Cloud Console",
+                              }),
+                              " and create or select a project (e.g. ",
+                              jsx("code", { children: "Fivestar" }),
+                              ").",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "2" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Enable YouTube Data API v3: " }),
+                              "In the sidebar go to ",
+                              jsx("b", { children: "APIs & Services > Library" }),
+                              ", search for ",
+                              jsx("b", { children: "YouTube Data API v3" }),
+                              ", and click ",
+                              jsx("b", { children: "Enable" }),
+                              ".",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "3" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Configure OAuth Consent Screen: " }),
+                              "Go to ",
+                              jsx("b", { children: "APIs & Services > OAuth consent screen" }),
+                              ", select ",
+                              jsx("b", { children: "External" }),
+                              ", fill in an App Name (e.g. Fivestar) and user support email. Under ",
+                              jsx("b", { children: "Test users" }),
+                              ", add the Google email account associated with your YouTube channel.",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "4" }),
+                          jsxs("div", {
+                            style: { width: "100%" },
+                            children: [
+                              jsx("strong", { children: "Create OAuth 2.0 Web Credentials: " }),
+                              "Go to ",
+                              jsx("b", { children: "APIs & Services > Credentials > Create Credentials > OAuth client ID" }),
+                              ". Set Application type to ",
+                              jsx("b", { children: "Web application" }),
+                              ". Under ",
+                              jsx("b", { children: "Authorized redirect URIs" }),
+                              ", add this exact URI:",
+                              jsxs("div", {
+                                className: "row",
+                                style: { gap: 6, marginTop: 6, alignItems: "center" },
+                                children: [
+                                  jsx("input", {
+                                    className: "input",
+                                    value: redirectUri,
+                                    readOnly: true,
+                                    style: { fontSize: 12.5, padding: "5px 10px" },
+                                    onFocus: (e) => e.target.select(),
+                                  }),
+                                  jsxs("button", {
+                                    type: "button",
+                                    className: "btn btn-small",
+                                    onClick: async () =>
+                                      toast((await copyText(redirectUri)) ? "Redirect URI copied" : "Failed to copy"),
+                                    children: [jsx(Copy, { size: 13 }), "Copy"],
+                                  }),
+                                ],
+                              }),
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "5" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Connect YouTube in Fivestar: " }),
+                              "Copy your generated ",
+                              jsx("b", { children: "Client ID" }),
+                              " and ",
+                              jsx("b", { children: "Client Secret" }),
+                              ", open ",
+                              jsx("a", {
+                                href: "#",
+                                onClick: (e) => {
+                                  e.preventDefault();
+                                  openSettingsModal();
+                                },
+                                style: { color: "#60a5fa", textDecoration: "underline" },
+                                children: "Settings (⚙️)",
+                              }),
+                              ", paste them into the YouTube direct upload section, and click ",
+                              jsx("b", { children: "Connect YouTube channel" }),
+                              ". Your channel and handle will connect immediately!",
+                            ],
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+              ],
+            }),
+
+            // ---- Instagram Guide Card ----
+            jsxs("div", {
+              style: cardStyle,
+              children: [
+                jsxs("button", {
+                  type: "button",
+                  style: headerBtnStyle,
+                  onClick: () => setIgOpen((v) => !v),
+                  children: [
+                    jsxs("span", {
+                      style: { display: "flex", alignItems: "center", gap: 8 },
+                      children: [
+                        jsx("span", { style: { fontSize: 17 }, children: "🟣" }),
+                        "How to set up Instagram Graph API (Direct Reels Upload)",
+                      ],
+                    }),
+                    jsx("span", {
+                      style: { fontSize: 13, color: "var(--text-muted, #94a3b8)" },
+                      children: igOpen ? "▲ Hide" : "▼ Show steps",
+                    }),
+                  ],
+                }),
+                igOpen &&
+                  jsxs("div", {
+                    style: contentStyle,
+                    children: [
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "1" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Account Prerequisites: " }),
+                              "Ensure your Instagram account is switched to a ",
+                              jsx("b", { children: "Professional (Business or Creator)" }),
+                              " account and linked to a ",
+                              jsx("b", { children: "Facebook Page" }),
+                              " that you manage.",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "2" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Create a Meta App: " }),
+                              "Go to ",
+                              jsx("a", {
+                                href: "https://developers.facebook.com/",
+                                target: "_blank",
+                                rel: "noreferrer",
+                                style: { color: "#60a5fa", textDecoration: "underline" },
+                                children: "Meta for Developers",
+                              }),
+                              " and click ",
+                              jsx("b", { children: "Create App" }),
+                              " (choose use case: ",
+                              jsx("b", { children: "Other > Business" }),
+                              ").",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "3" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Generate Access Token in Graph API Explorer: " }),
+                              "Open the ",
+                              jsx("a", {
+                                href: "https://developers.facebook.com/tools/explorer/",
+                                target: "_blank",
+                                rel: "noreferrer",
+                                style: { color: "#60a5fa", textDecoration: "underline" },
+                                children: "Meta Graph API Explorer",
+                              }),
+                              ". Select your App, and add these permissions: ",
+                              jsx("code", { children: "instagram_basic" }),
+                              ", ",
+                              jsx("code", { children: "instagram_content_publish" }),
+                              ", ",
+                              jsx("code", { children: "pages_show_list" }),
+                              ", and ",
+                              jsx("code", { children: "pages_read_engagement" }),
+                              ". Click ",
+                              jsx("b", { children: "Generate Access Token" }),
+                              " and grant access to your Facebook Page and linked Instagram account.",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "4" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "60-Day Auto-Refresh Keys (Optional): " }),
+                              "In your Meta App Dashboard under ",
+                              jsx("b", { children: "App settings > Basic" }),
+                              ", find your ",
+                              jsx("b", { children: "App ID" }),
+                              " and ",
+                              jsx("b", { children: "App Secret" }),
+                              ". Adding these in Fivestar lets it extend and auto-refresh your Instagram access token for up to 60 days.",
+                            ],
+                          }),
+                        ],
+                      }),
+                      jsxs("div", {
+                        style: { display: "flex", alignItems: "flex-start" },
+                        children: [
+                          jsx("span", { style: stepNumStyle, children: "5" }),
+                          jsxs("div", {
+                            children: [
+                              jsx("strong", { children: "Connect Instagram in Fivestar: " }),
+                              "Open ",
+                              jsx("a", {
+                                href: "#",
+                                onClick: (e) => {
+                                  e.preventDefault();
+                                  openSettingsModal();
+                                },
+                                style: { color: "#60a5fa", textDecoration: "underline" },
+                                children: "Settings (⚙️)",
+                              }),
+                              ", paste the generated Access Token (and optional App ID / App Secret), and click ",
+                              jsx("b", { children: "Save & connect Instagram" }),
+                              ". Your Instagram username and ID will connect and verify immediately!",
+                            ],
+                          }),
+                        ],
+                      }),
+                    ],
+                  }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+  }
+
   return {
     SocialSettingsSection,
     YouTubeUploadBox,
     InstagramUploadBox,
+    SocialIntegrationHelp,
   };
 }
