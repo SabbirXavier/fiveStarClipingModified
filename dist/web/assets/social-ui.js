@@ -562,12 +562,44 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
 
   function YouTubeUploadBox({ project, clip, draft, meta }) {
     const { status } = useSocialStatus();
-    const [privacy, setPrivacy] = useState("private");
-    const [categoryId, setCategoryId] = useState("20");
-    const [madeForKids, setMadeForKids] = useState(false);
-    const [defaultLanguage, setDefaultLanguage] = useState("");
+    const [privacy, setPrivacy] = useState(() => {
+      try {
+        return localStorage.getItem("fivestar_yt_privacy") || "public";
+      } catch {
+        return "public";
+      }
+    });
+    const [categoryId, setCategoryId] = useState(() => {
+      try {
+        return localStorage.getItem("fivestar_yt_categoryId") || "20";
+      } catch {
+        return "20";
+      }
+    });
+    const [madeForKids, setMadeForKids] = useState(() => {
+      try {
+        const v = localStorage.getItem("fivestar_yt_madeForKids");
+        return v !== null ? v === "true" : false;
+      } catch {
+        return false;
+      }
+    });
+    const [defaultLanguage, setDefaultLanguage] = useState(() => {
+      try {
+        return localStorage.getItem("fivestar_yt_language") ?? "";
+      } catch {
+        return "";
+      }
+    });
     const [publishAtLocal, setPublishAtLocal] = useState("");
-    const [uploadThumbnail, setUploadThumbnail] = useState(true);
+    const [uploadThumbnail, setUploadThumbnail] = useState(() => {
+      try {
+        const v = localStorage.getItem("fivestar_yt_thumbnail");
+        return v !== null ? v === "true" : true;
+      } catch {
+        return true;
+      }
+    });
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState("");
     const [localFile, setLocalFile] = useState(null);
@@ -720,7 +752,10 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                   id: `yt-privacy-${clip.id}`,
                   className: "select",
                   value: isScheduled ? "private" : privacy,
-                  onChange: (e) => setPrivacy(e.target.value),
+                  onChange: (e) => {
+                    setPrivacy(e.target.value);
+                    try { localStorage.setItem("fivestar_yt_privacy", e.target.value); } catch {}
+                  },
                   disabled: uploading || isScheduled,
                   children: [
                     jsx("option", { value: "private", children: isScheduled ? "Private (scheduled)" : "Private" }, "private"),
@@ -738,7 +773,10 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                   id: `yt-cat-${clip.id}`,
                   className: "select",
                   value: categoryId,
-                  onChange: (e) => setCategoryId(e.target.value),
+                  onChange: (e) => {
+                    setCategoryId(e.target.value);
+                    try { localStorage.setItem("fivestar_yt_categoryId", e.target.value); } catch {}
+                  },
                   disabled: uploading,
                   children: YT_CATEGORIES.map((c) =>
                     jsx("option", { value: c.id, children: c.label }, c.id)
@@ -762,7 +800,11 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                   id: `yt-kids-${clip.id}`,
                   className: "select",
                   value: madeForKids ? "yes" : "no",
-                  onChange: (e) => setMadeForKids(e.target.value === "yes"),
+                  onChange: (e) => {
+                    const v = e.target.value === "yes";
+                    setMadeForKids(v);
+                    try { localStorage.setItem("fivestar_yt_madeForKids", String(v)); } catch {}
+                  },
                   disabled: uploading,
                   children: [
                     jsx("option", { value: "no", children: "No, not made for kids" }, "no"),
@@ -779,7 +821,10 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                   id: `yt-lang-${clip.id}`,
                   className: "select",
                   value: defaultLanguage,
-                  onChange: (e) => setDefaultLanguage(e.target.value),
+                  onChange: (e) => {
+                    setDefaultLanguage(e.target.value);
+                    try { localStorage.setItem("fivestar_yt_language", e.target.value); } catch {}
+                  },
                   disabled: uploading,
                   children: YT_LANGUAGES.map((l) =>
                     jsx("option", { value: l.code, children: l.label }, l.code || "auto")
@@ -833,7 +878,10 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
               type: "checkbox",
               checked: uploadThumbnail,
               disabled: uploading,
-              onChange: (e) => setUploadThumbnail(e.target.checked),
+              onChange: (e) => {
+                setUploadThumbnail(e.target.checked);
+                try { localStorage.setItem("fivestar_yt_thumbnail", String(e.target.checked)); } catch {}
+              },
             }),
             "Upload Cover image as YouTube thumbnail",
           ],

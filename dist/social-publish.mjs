@@ -687,14 +687,14 @@ export function registerSocialRoutes(app, deps) {
         const allowedCategories = new Set([
           "1", "2", "10", "15", "17", "19", "20", "22", "23", "24", "25", "26", "27", "28", "29",
         ]);
-        const rawCategory = String(body.categoryId ?? "22").trim();
-        const categoryId = allowedCategories.has(rawCategory) ? rawCategory : "22";
+        const rawCategory = String(body.categoryId ?? "20").trim();
+        const categoryId = allowedCategories.has(rawCategory) ? rawCategory : "20";
         const rawLang = String(body.defaultLanguage ?? "").trim();
         const defaultLanguage = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(rawLang) ? rawLang : "";
-        const rawPrivacy = String(body.privacyStatus ?? "private").toLowerCase();
+        const rawPrivacy = String(body.privacyStatus ?? "public").toLowerCase();
         let privacyStatus = ["private", "unlisted", "public"].includes(rawPrivacy)
           ? rawPrivacy
-          : "private";
+          : "public";
         const madeForKids = body.madeForKids === true || body.madeForKids === "true";
 
         let publishAt = "";
