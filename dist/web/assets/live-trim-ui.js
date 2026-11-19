@@ -1395,6 +1395,8 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             masterM3u8: streamInfo.masterM3u8,
             start,
             end,
+            streamDuration: (streamInfo.duration || recordStart) + dur,
+            rewoundSec: Math.max(0, dur),
             title: streamInfo.title,
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
@@ -1480,6 +1482,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       setSliceProgress("Fetching live stream segment & transcribing with Whisper (may take 20-40s for HD/1440p)...");
       try {
         const currentHead = liveHead || streamInfo.duration || 7200;
+        const rewoundSec = isLiveSync ? 0 : Math.max(0, currentHead - trim.start);
         const res = await fetch("/api/live/slice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1491,6 +1494,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             start: trim.start,
             end: trim.end,
             streamDuration: currentHead,
+            rewoundSec,
             title: streamInfo.title,
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
@@ -1532,6 +1536,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             start: Math.max(0, currentHead - sec),
             end: currentHead,
             streamDuration: currentHead,
+            rewoundSec: sec,
             title: streamInfo.title,
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,

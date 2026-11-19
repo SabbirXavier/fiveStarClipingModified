@@ -63,6 +63,146 @@ async function resolveKickStream(channel) {
   }
 }
 
+// Direct sequence-level DVR slicer for YouTube live streams
+// Solves the rolling 15-minute HLS manifest limit by directly targeting YouTube's 2-4 hour CDN sequence cache
+async function extractYouTubeLiveDvrSegment({
+  url,
+  clipDuration,
+  rewoundSec,
+  formatSelector,
+  sortSelector,
+  targetFile,
+  cPath,
+  ytDlpRunner,
+  ffmpegBin
+}) {
+  console.log(`[YouTube DVR Engine] Slicing exact DVR sequence: ${url} (rewound: ${rewoundSec}s, dur: ${clipDuration}s)...`);
+
+  const gArgs = [
+    "--no-warnings",
+    "--js-runtimes", "node",
+    "--extractor-args", "youtube:formats=incomplete",
+    "-g",
+    "-f", formatSelector || "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/best[protocol^=m3u8]"
+  ];
+  if (sortSelector) {
+    gArgs.push("-S", sortSelector);
+  }
+  gArgs.push(url);
+
+  const gRes = await ytDlpRunner(gArgs, { timeout: 30e3 });
+  if (gRes.code !== 0 || !gRes.stdout.trim()) {
+    throw new Error("Could not resolve YouTube HLS stream URLs: " + (gRes.stderr || "Unknown error"));
+  }
+
+  const streamUrls = gRes.stdout.trim().split(/\r?\n/).map(s => s.trim()).filter(s => s.startsWith("http"));
+  if (streamUrls.length === 0) {
+    throw new Error("No valid HTTP stream URLs found in yt-dlp output");
+  }
+
+  const videoUrl = streamUrls[0];
+  const audioUrl = streamUrls.length > 1 ? streamUrls[1] : null;
+
+  const vRes = await fetch(videoUrl);
+  if (!vRes.ok) {
+    throw new Error(`Failed to fetch video HLS manifest (status ${vRes.status})`);
+  }
+  const vText = await vRes.text();
+
+  const targetDurMatch = vText.match(/#EXT-X-TARGETDURATION:(\d+)/);
+  const targetDur = targetDurMatch ? parseInt(targetDurMatch[1], 10) : 2;
+  const seqMatch = vText.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/);
+  const mediaSeq = seqMatch ? parseInt(seqMatch[1], 10) : 0;
+
+  const allSeqs = [...vText.matchAll(/\/sq\/(\d+)\//g)].map(m => parseInt(m[1], 10));
+  const headSeq = allSeqs.length > 0 ? Math.max(...allSeqs) : (mediaSeq + 450);
+
+  const segUrlMatch = vText.match(/https:\/\/[^\s\n]+\/sq\/(\d+)\/[^\s\n]+/);
+  if (!segUrlMatch) {
+    throw new Error("Could not parse YouTube segment URL pattern from manifest");
+  }
+  const sampleUrl = segUrlMatch[0];
+
+  const offsetSegments = Math.round(rewoundSec / targetDur);
+  const targetStartSeq = Math.max(0, headSeq - offsetSegments);
+  const numSegments = Math.max(2, Math.ceil(clipDuration / targetDur));
+
+  console.log(`[YouTube DVR Engine] headSeq: ${headSeq}, rewound: ${rewoundSec}s -> targetStartSeq: ${targetStartSeq}, count: ${numSegments}`);
+
+  function buildM3U8(sampleSegUrl, startS, count, dur) {
+    let m = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:${dur}\n#EXT-X-MEDIA-SEQUENCE:${startS}\n`;
+    for (let i = 0; i < count; i++) {
+      const s = startS + i;
+      const segUrl = sampleSegUrl.replace(/\/sq\/\d+\//, `/sq/${s}/`);
+      m += `#EXTINF:${dur}.000,\n${segUrl}\n`;
+    }
+    m += `#EXT-X-ENDLIST\n`;
+    return m;
+  }
+
+  const vTempM3u8 = path.join(cPath, "custom_v.m3u8");
+  fs.writeFileSync(vTempM3u8, buildM3U8(sampleUrl, targetStartSeq, numSegments, targetDur));
+
+  const ffArgs = [
+    "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
+    "-allowed_extensions", "ALL",
+    "-i", vTempM3u8
+  ];
+
+  let aTempM3u8 = null;
+  if (audioUrl) {
+    try {
+      const aRes = await fetch(audioUrl);
+      if (aRes.ok) {
+        const aText = await aRes.text();
+        const aSegMatch = aText.match(/https:\/\/[^\s\n]+\/sq\/(\d+)\/[^\s\n]+/);
+        if (aSegMatch) {
+          aTempM3u8 = path.join(cPath, "custom_a.m3u8");
+          fs.writeFileSync(aTempM3u8, buildM3U8(aSegMatch[0], targetStartSeq, numSegments, targetDur));
+          ffArgs.push(
+            "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
+            "-allowed_extensions", "ALL",
+            "-i", aTempM3u8
+          );
+        }
+      }
+    } catch (aErr) {
+      console.warn("[YouTube DVR Engine] Audio manifest notice:", aErr.message);
+    }
+  }
+
+  ffArgs.push(
+    "-c", "copy",
+    "-movflags", "+faststart",
+    "-y",
+    targetFile
+  );
+
+  const ffBin = ffmpegBin || "ffmpeg";
+  const ffProc = spawn(ffBin, ffArgs);
+  let ffErr = "";
+  ffProc.stderr.on("data", d => ffErr += d);
+
+  try {
+    await new Promise((resolve, reject) => {
+      ffProc.on("close", code => {
+        if (code === 0) resolve();
+        else reject(new Error(`FFmpeg exited with code ${code}: ${ffErr.slice(-300)}`));
+      });
+      ffProc.on("error", reject);
+    });
+  } finally {
+    try { if (fs.existsSync(vTempM3u8)) fs.unlinkSync(vTempM3u8); } catch {}
+    try { if (aTempM3u8 && fs.existsSync(aTempM3u8)) fs.unlinkSync(aTempM3u8); } catch {}
+  }
+
+  if (fs.existsSync(targetFile) && fs.statSync(targetFile).size >= 5000) {
+    console.log(`[YouTube DVR Engine] Exact DVR sequence slice succeeded (${fs.statSync(targetFile).size} bytes)`);
+    return targetFile;
+  }
+  return null;
+}
+
 export function registerLiveRoutes(app, deps) {
   const {
     getProject,
@@ -444,33 +584,74 @@ export function registerLiveRoutes(app, deps) {
         sortSelector = "res,fps,vcodec:h264,tbr";
       }
 
-      ytArgs.push(
-        "--download-sections", sectionArg,
-        "-f", formatSelector,
-        "-S", sortSelector,
-        "--merge-output-format", "mp4",
-        "-o", path.join(cPath, "src.%(ext)s"),
-        targetDownloadUrl
-      );
-      let sliceResult = { code: 1, stderr: "" };
-      try {
-        sliceResult = await ytDlpRunner(ytArgs, { timeout: 300e3 });
-      } catch (dlpErr) {
-        console.warn(`[Live Clipper] yt-dlp slice warning or timeout:`, dlpErr.message);
-        sliceResult = { code: 1, stderr: dlpErr.message };
+      let actualSrc = null;
+
+      // 1. YouTube Live DVR sequence engine:
+      // Bypasses the rolling 15-minute manifest limit of yt-dlp/ffmpeg and grabs the exact
+      // historical sequence chunks from YouTube's 2-4 hour CDN buffer in 3-5 seconds.
+      if (platform === "youtube") {
+        try {
+          let rewoundSec = null;
+          if (Number.isFinite(Number(req.body?.rewoundSec))) {
+            rewoundSec = Number(req.body.rewoundSec);
+          } else if (streamDuration > 0 && start >= 0 && streamDuration > start) {
+            rewoundSec = streamDuration - start;
+          } else if (start < 0) {
+            rewoundSec = Math.abs(start);
+          } else if (req.body?.isLiveHead) {
+            rewoundSec = clipDuration;
+          }
+
+          console.log(`[Live Clipper] Attempting YouTube sequence DVR slice (rewoundSec: ${rewoundSec}, clipDur: ${clipDuration}s)...`);
+          const seqResult = await extractYouTubeLiveDvrSegment({
+            url: targetDownloadUrl,
+            clipDuration,
+            rewoundSec: rewoundSec ?? clipDuration,
+            formatSelector,
+            sortSelector,
+            targetFile: targetSrcFile,
+            cPath,
+            ytDlpRunner,
+            ffmpegBin
+          });
+
+          if (seqResult && fs.existsSync(targetSrcFile) && fs.statSync(targetSrcFile).size >= 5000) {
+            actualSrc = targetSrcFile;
+            console.log(`[Live Clipper] YouTube sequence DVR slice succeeded: ${actualSrc} (${fs.statSync(actualSrc).size} bytes)`);
+          }
+        } catch (seqErr) {
+          console.warn("[Live Clipper] YouTube sequence DVR slice notice:", seqErr.message);
+        }
       }
 
-      // Check if file exists (it could be src.mp4 or src.mkv)
-      let actualSrc = null;
-      if (fs.existsSync(targetSrcFile) && fs.statSync(targetSrcFile).size >= 5000) {
-        actualSrc = targetSrcFile;
-      } else {
-        const entries = fs.readdirSync(cPath);
-        const match = entries.find(f => f.startsWith("src.") && !f.endsWith(".part"));
-        if (match) {
-          const found = path.join(cPath, match);
-          if (fs.statSync(found).size >= 5000) {
-            actualSrc = found;
+      // 2. If YouTube sequence slicing was not applicable or fell through, run standard yt-dlp slice
+      if (!actualSrc) {
+        ytArgs.push(
+          "--download-sections", sectionArg,
+          "-f", formatSelector,
+          "-S", sortSelector,
+          "--merge-output-format", "mp4",
+          "-o", path.join(cPath, "src.%(ext)s"),
+          targetDownloadUrl
+        );
+        let sliceResult = { code: 1, stderr: "" };
+        try {
+          sliceResult = await ytDlpRunner(ytArgs, { timeout: 300e3 });
+        } catch (dlpErr) {
+          console.warn(`[Live Clipper] yt-dlp slice warning or timeout:`, dlpErr.message);
+          sliceResult = { code: 1, stderr: dlpErr.message };
+        }
+
+        if (fs.existsSync(targetSrcFile) && fs.statSync(targetSrcFile).size >= 5000) {
+          actualSrc = targetSrcFile;
+        } else {
+          const entries = fs.readdirSync(cPath);
+          const match = entries.find(f => f.startsWith("src.") && !f.endsWith(".part"));
+          if (match) {
+            const found = path.join(cPath, match);
+            if (fs.statSync(found).size >= 5000) {
+              actualSrc = found;
+            }
           }
         }
       }
