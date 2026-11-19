@@ -304,9 +304,9 @@ export function registerLiveRoutes(app, deps) {
       }
 
       // Generate unique IDs
-      const projectId = "plive_" + Math.random().toString(36).slice(2, 10);
-      const clipId = "clive_" + Math.random().toString(36).slice(2, 10);
-      const momentId = "mlive_" + Math.random().toString(36).slice(2, 10);
+      const projectId = "plive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+      const clipId = "clive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+      const momentId = "mlive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 
       const pPath = projectDir(projectId);
       const cPath = clipDir(projectId, clipId);
@@ -596,7 +596,7 @@ export function registerLiveRoutes(app, deps) {
         return res.status(400).json({ error: "Analysis window should be at most 60 minutes for fast live processing." });
       }
 
-      const projectId = "plive_win_" + Math.random().toString(36).slice(2, 10);
+      const projectId = "pwin" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
       const pPath = projectDir(projectId);
       fs.mkdirSync(pPath, { recursive: true });
 
