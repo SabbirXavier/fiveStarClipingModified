@@ -26,13 +26,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
   // Helper to sync video player or iframe playback time
   function seekActivePlayers(timeInSec) {
     try {
-      // 1. Seek native HTML5 video elements
+      // 1. Seek native HTML5 video elements (supports live & DVR HLS video)
       const videos = document.querySelectorAll("video");
       videos.forEach(v => {
         try {
-          if (Number.isFinite(v.duration) && v.duration > 0) {
-            v.currentTime = Math.min(v.duration, Math.max(0, timeInSec));
-          }
+          v.currentTime = Math.max(0, timeInSec);
         } catch {}
       });
 
@@ -98,13 +96,72 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         overflow: hidden;
         margin-bottom: 16px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        display: flex;
+        flex-direction: column;
+      }
+      .preview-header-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 14px;
+        background: rgba(15, 15, 20, 0.95);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        font-size: 13px;
+        flex-shrink: 0;
+      }
+      .preview-title-badge {
+        font-weight: 700;
+        color: #c084fc;
+        letter-spacing: 0.3px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .preview-time-badge {
+        font-weight: 600;
+        color: #e4e4e7;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 2px 8px;
+        border-radius: 4px;
       }
       .trim-preview-player-wrap video,
       .trim-preview-player-wrap iframe {
         width: 100%;
         height: 100%;
+        flex: 1;
         border: none;
         display: block;
+      }
+      .hls-video-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        flex: 1;
+        background: #000;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .hls-video-element {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+      }
+      .hls-loading-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.7);
+        color: #e4e4e7;
+        font-size: 14px;
+        gap: 10px;
+        z-index: 10;
+        backdrop-filter: blur(4px);
       }
       .trim-top-row {
         display: flex;
@@ -388,6 +445,153 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
   }
 
   // ==========================================
+  // COMPONENT: Native Scrubbable HLS DVR Video Player
+  // Plays live and recorded HLS streams (Kick, Twitch, etc.)
+  // ==========================================
+  function HlsVideoPlayer({ src, startTime = 0, endTime = 0, title = "", isLive = false, onTimeUpdate }) {
+    const videoRef = useRef(null);
+    const hlsRef = useRef(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [currTime, setCurrTime] = useState(startTime);
+    const [isBuffering, setIsBuffering] = useState(false);
+
+    // Initial setup with hls.js
+    useEffect(() => {
+      let isCancelled = false;
+      const video = videoRef.current;
+      if (!video || !src) return;
+
+      setLoading(true);
+      setError(null);
+
+      function attachHls() {
+        if (!window.Hls || !window.Hls.isSupported()) {
+          // Native Safari / iOS HLS check
+          if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = src;
+            if (startTime > 0) video.currentTime = startTime;
+            video.play().catch(() => {});
+            setLoading(false);
+            return;
+          }
+          setError("HLS stream playback not supported in this browser.");
+          setLoading(false);
+          return;
+        }
+
+        if (hlsRef.current) {
+          try { hlsRef.current.destroy(); } catch {}
+          hlsRef.current = null;
+        }
+
+        const hls = new window.Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 300,
+          maxBufferLength: 60,
+          maxMaxBufferLength: 600,
+          liveSyncDurationCount: 3,
+          startPosition: startTime > 0 ? startTime : -1
+        });
+        hlsRef.current = hls;
+
+        hls.loadSource(src);
+        hls.attachMedia(video);
+
+        hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+          if (isCancelled) return;
+          setLoading(false);
+          if (startTime > 0) {
+            try { video.currentTime = startTime; } catch {}
+          }
+          video.play().catch(() => {});
+        });
+
+        hls.on(window.Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            switch (data.type) {
+              case window.Hls.ErrorTypes.NETWORK_ERROR:
+                hls.startLoad();
+                break;
+              case window.Hls.ErrorTypes.MEDIA_ERROR:
+                hls.recoverMediaError();
+                break;
+              default:
+                hls.destroy();
+                setError("Stream playback error: " + (data.details || "Failed to load"));
+                break;
+            }
+          }
+        });
+      }
+
+      if (window.Hls) {
+        attachHls();
+      } else {
+        // Load local /assets/hls.min.js
+        const script = document.createElement("script");
+        script.src = "/assets/hls.min.js";
+        script.async = true;
+        script.onload = () => {
+          if (!isCancelled) attachHls();
+        };
+        script.onerror = () => {
+          if (!isCancelled) setError("Could not load local HLS player engine.");
+        };
+        document.head.appendChild(script);
+      }
+
+      return () => {
+        isCancelled = true;
+        if (hlsRef.current) {
+          try { hlsRef.current.destroy(); } catch {}
+          hlsRef.current = null;
+        }
+      };
+    }, [src]);
+
+    // Update time listener
+    const handleTimeUpdate = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      setCurrTime(v.currentTime);
+      onTimeUpdate?.(v.currentTime);
+    };
+
+    return jsxs("div", {
+      className: "hls-video-container",
+      children: [
+        loading && jsxs("div", {
+          className: "hls-loading-overlay",
+          children: [
+            jsx("span", { style: { animation: "spin 1s linear infinite", fontSize: "24px" }, children: "⚡" }),
+            jsx("span", { children: "Connecting to Kick DVR live stream..." })
+          ]
+        }),
+        error && jsxs("div", {
+          className: "hls-loading-overlay",
+          style: { background: "rgba(127, 29, 29, 0.85)" },
+          children: [
+            jsx("span", { style: { fontSize: "24px" }, children: "⚠️" }),
+            jsx("span", { children: error })
+          ]
+        }),
+        jsx("video", {
+          ref: videoRef,
+          className: "hls-video-element",
+          controls: true,
+          autoPlay: true,
+          playsInline: true,
+          onTimeUpdate: handleTimeUpdate,
+          onWaiting: () => setIsBuffering(true),
+          onPlaying: () => setIsBuffering(false)
+        })
+      ]
+    });
+  }
+
+  // ==========================================
   // COMPONENT: Universal Moment Video Player
   // Plays local videos, YouTube, Kick, and Twitch
   // ==========================================
@@ -400,64 +604,94 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const start = Number.isFinite(startTime) ? startTime : (moment?.start || 0);
     const end = Number.isFinite(endTime) ? endTime : (moment?.end || start + 60);
 
-    // If local file
+    const header = jsxs("div", {
+      className: "preview-header-bar",
+      children: [
+        jsxs("span", {
+          className: "preview-title-badge",
+          children: [
+            jsx("span", { children: "▶" }),
+            ` Previewing: Moment ${moment?.rank || 1}`
+          ]
+        }),
+        jsx("span", {
+          className: "preview-time-badge",
+          children: `${formatSec(start)} → ${formatSec(end)} (${Math.round(end - start)}s)`
+        })
+      ]
+    });
+
+    // 1. If local file
     if (isFile && source.file) {
       const fileUrl = `/files/projects/${project.id}/${source.file}#t=${start.toFixed(1)},${end.toFixed(1)}`;
-      return jsx("div", {
+      return jsxs("div", {
         className: "trim-preview-player-wrap",
-        children: jsx("video", {
-          key: `${project.id}_${start.toFixed(1)}_${end.toFixed(1)}`,
-          controls: true,
-          autoPlay: true,
-          preload: "metadata",
-          src: fileUrl
-        })
+        children: [
+          header,
+          jsx("video", {
+            key: `${project.id}_${start.toFixed(1)}_${end.toFixed(1)}`,
+            controls: true,
+            autoPlay: true,
+            preload: "metadata",
+            src: fileUrl
+          })
+        ]
       });
     }
 
-    // If Kick
+    // 2. If Kick (Use native scrubbable HLS player)
     if (platform === "kick" || (source.url && source.url.includes("kick.com"))) {
       const channel = (source.channel || source.id || (source.url.match(/kick\.com\/([^/?#]+)/)?.[1] ?? "")).toLowerCase();
-      return jsx("div", {
+      const hlsUrl = `/api/live/kick-hls/${encodeURIComponent(channel)}/master.m3u8`;
+      return jsxs("div", {
         className: "trim-preview-player-wrap",
-        children: jsx("iframe", {
-          key: `kick_${channel}`,
-          src: `https://player.kick.com/${encodeURIComponent(channel)}?autoplay=true&muted=false`,
-          title: moment ? `Moment ${moment.rank || 1}` : "Kick Stream Preview",
-          allow: "autoplay; fullscreen; picture-in-picture; encrypted-media",
-          allowFullScreen: true
-        })
+        children: [
+          header,
+          jsx(HlsVideoPlayer, {
+            key: `kick_hls_${channel}`,
+            src: hlsUrl,
+            startTime: start,
+            endTime: end,
+            title: `Kick: ${channel}`
+          })
+        ]
       });
     }
 
-    // If Twitch
+    // 3. If Twitch
     if (platform === "twitch" || (source.url && source.url.includes("twitch.tv"))) {
       const channel = (source.channel || (source.url.match(/twitch\.tv\/([^/?#]+)/)?.[1] ?? "")).toLowerCase();
       const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
-      return jsx("div", {
+      return jsxs("div", {
         className: "trim-preview-player-wrap",
-        children: jsx("iframe", {
-          key: `twitch_${channel}`,
-          src: `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${hostname}&autoplay=true&muted=false`,
-          title: moment ? `Moment ${moment.rank || 1}` : "Twitch Stream Preview",
-          allow: "autoplay; fullscreen; picture-in-picture",
-          allowFullScreen: true
-        })
+        children: [
+          header,
+          jsx("iframe", {
+            key: `twitch_${channel}`,
+            src: `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${hostname}&autoplay=true&muted=false`,
+            title: moment ? `Moment ${moment.rank || 1}` : "Twitch Stream Preview",
+            allow: "autoplay; fullscreen; picture-in-picture",
+            allowFullScreen: true
+          })
+        ]
       });
     }
 
-    // YouTube
-    const videoId = source.id || (source.url ? (source.url.match(/(?:v=|\/embed\/|youtu\.be\/)([\w-]{11})/)?.[1] || "") : "");
+    // 4. YouTube
+    const videoId = source.videoId || source.id || (source.url ? (source.url.match(/(?:v=|\/embed\/|\/live\/|youtu\.be\/)([\w-]{11})/)?.[1] || "") : "");
     if (videoId) {
-      return jsx("div", {
+      return jsxs("div", {
         className: "trim-preview-player-wrap",
-        children: jsx("iframe", {
-          key: `yt_${videoId}_${Math.floor(start)}_${Math.ceil(end)}`,
-          src: `https://www.youtube.com/embed/${videoId}?start=${Math.floor(start)}&end=${Math.ceil(end)}&autoplay=1&enablejsapi=1&rel=0`,
-          title: moment ? `Moment ${moment.rank || 1}` : "YouTube Preview",
-          allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
-          allowFullScreen: true
-        })
+        children: [
+          header,
+          jsx("iframe", {
+            key: `yt_${videoId}_${Math.floor(start)}_${Math.ceil(end)}`,
+            src: `https://www.youtube.com/embed/${videoId}?start=${Math.floor(start)}&end=${Math.ceil(end)}&autoplay=1&enablejsapi=1&rel=0`,
+            title: moment ? `Moment ${moment.rank || 1}` : "YouTube Preview",
+            allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+            allowFullScreen: true
+          })
+        ]
       });
     }
 
@@ -867,6 +1101,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [sliceProgress, setSliceProgress] = useState("");
     const [lastCreatedClip, setLastCreatedClip] = useState(null);
     const [sessionClips, setSessionClips] = useState([]);
+    const [useOfficialEmbed, setUseOfficialEmbed] = useState(false);
 
     const playerRef = useRef(null);
 
@@ -901,10 +1136,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
 
         setStreamInfo(data);
         const platform = (data.platform || "youtube").toLowerCase();
-        const dur = platform === "youtube" ? (data.duration || 7200) : 300;
-        const initialStart = platform === "youtube" ? Math.max(0, dur - 60) : 0;
-        const initialEnd = platform === "youtube" ? dur : 60;
-        setTrim({ start: initialStart, end: initialEnd, duration: 60 });
+        const dur = data.duration || 7200;
+        const initialStart = platform === "youtube" ? Math.max(0, dur - 60) : (platform === "kick" ? Math.max(0, dur - 60) : 0);
+        const initialEnd = dur;
+        const initialDuration = Math.min(60, Math.max(5, initialEnd - initialStart));
+        setTrim({ start: initialStart, end: initialEnd, duration: initialDuration });
         toast?.(`Loaded stream: ${data.title}`);
       } catch (err) {
         toast?.(err.message, true);
@@ -929,6 +1165,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: streamInfo.url,
+            masterM3u8: streamInfo.masterM3u8,
             start: trim.start,
             end: trim.end,
             title: streamInfo.title,
@@ -963,6 +1200,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: streamInfo.url,
+            masterM3u8: streamInfo.masterM3u8,
             start: trim.start,
             end: trim.end,
             title: streamInfo.title,
@@ -1088,11 +1326,41 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
 
-              // Live Player Embed
+              // Kick Player Mode Switcher
+              streamInfo.platform === "kick" && jsxs("div", {
+                style: { display: "flex", gap: "8px", marginBottom: "12px", alignItems: "center", flexWrap: "wrap" },
+                children: [
+                  jsx("button", {
+                    type: "button",
+                    className: `btn btn-small ${!useOfficialEmbed ? "btn-primary" : "btn-ghost"}`,
+                    onClick: () => setUseOfficialEmbed(false),
+                    children: "📺 Native DVR Player (Scrubbable)"
+                  }),
+                  jsx("button", {
+                    type: "button",
+                    className: `btn btn-small ${useOfficialEmbed ? "btn-primary" : "btn-ghost"}`,
+                    onClick: () => setUseOfficialEmbed(true),
+                    children: "🌐 Kick Web Embed"
+                  }),
+                  jsx("span", {
+                    style: { color: "#a1a1aa", fontSize: "12px", marginLeft: "auto" },
+                    children: "⚡ Native DVR Player enables real-time scrubbing backwards and dragging handles to clip."
+                  })
+                ]
+              }),
+
+              // Live Player (Native HLS DVR for Kick, iframe for YouTube/Twitch)
               jsxs("div", {
                 className: "live-player-frame",
                 children: [
-                  jsx("iframe", {
+                  (streamInfo.platform === "kick" && streamInfo.hlsStreamUrl && !useOfficialEmbed) ? jsx(HlsVideoPlayer, {
+                    key: `kick_dvr_${streamInfo.channel}`,
+                    src: streamInfo.hlsStreamUrl,
+                    startTime: trim.start,
+                    endTime: trim.end,
+                    isLive: streamInfo.isLive,
+                    title: streamInfo.title
+                  }) : jsx("iframe", {
                     ref: playerRef,
                     src: getEmbedPlayerSrc(),
                     title: streamInfo.title,

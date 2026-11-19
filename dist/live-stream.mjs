@@ -4,6 +4,64 @@
 import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
+
+// Memory cache for Kick live stream masters and active channels
+const kickStreamCache = new Map();
+
+async function resolveKickStream(channel) {
+  const ch = String(channel || "").trim().toLowerCase();
+  if (!ch) return null;
+  const cached = kickStreamCache.get(ch);
+  if (cached && Date.now() - cached.fetchedAt < 60e3) {
+    return cached;
+  }
+
+  try {
+    const [cRes, vRes] = await Promise.all([
+      fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(ch)}`, {
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+      }).catch(() => null),
+      fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(ch)}/videos`, {
+        headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+      }).catch(() => null)
+    ]);
+
+    const cData = cRes && cRes.ok ? await cRes.json() : null;
+    const vData = vRes && vRes.ok ? await vRes.json() : null;
+
+    const liveVideo = Array.isArray(vData) ? vData[0] : (vData?.videos?.[0] || null);
+    const masterM3u8 = liveVideo?.source || cData?.playback_url || null;
+    const title = cData?.livestream?.session_title || liveVideo?.session_title || `${channel}'s Live Stream`;
+    const isLive = cData?.livestream?.is_live ?? (liveVideo?.is_live ?? true);
+    const startTime = cData?.livestream?.start_time || liveVideo?.start_time || null;
+    const elapsed = startTime
+      ? Math.max(60, Math.floor((Date.now() - new Date(startTime + "Z").getTime()) / 1000))
+      : 7200;
+    const thumbnail = liveVideo?.thumbnail?.src || cData?.banner_image?.url || cData?.user?.profile_pic || "";
+    const viewCount = cData?.livestream?.viewer_count || 0;
+
+    const result = {
+      channel: ch,
+      title,
+      isLive,
+      startTime,
+      elapsed,
+      thumbnail,
+      viewCount,
+      masterM3u8,
+      hlsProxyUrl: `/api/live/kick-hls/${ch}/master.m3u8`,
+      fetchedAt: Date.now()
+    };
+    if (masterM3u8) {
+      kickStreamCache.set(ch, result);
+    }
+    return result;
+  } catch (err) {
+    console.warn(`[Kick API] Failed to resolve stream for ${ch}:`, err.message);
+    return cached || null;
+  }
+}
 
 export function registerLiveRoutes(app, deps) {
   const {
@@ -45,7 +103,33 @@ export function registerLiveRoutes(app, deps) {
 
       const platform = detectPlatform(url);
 
-      // Execute yt-dlp to inspect stream metadata
+      // Fast-track Kick streams with full DVR master playlist & API
+      if (platform === "kick") {
+        const kickMatch = url.match(/kick\.com\/([^/?#]+)/);
+        const channelName = kickMatch ? kickMatch[1].toLowerCase() : "";
+        if (channelName) {
+          const kickInfo = await resolveKickStream(channelName);
+          if (kickInfo && kickInfo.masterM3u8) {
+            return res.json({
+              ok: true,
+              isLive: kickInfo.isLive,
+              platform: "kick",
+              videoId: channelName,
+              channel: kickInfo.channel,
+              title: kickInfo.title,
+              thumbnail: kickInfo.thumbnail,
+              viewCount: kickInfo.viewCount,
+              duration: kickInfo.elapsed,
+              url: `https://kick.com/${channelName}`,
+              masterM3u8: kickInfo.masterM3u8,
+              hlsStreamUrl: kickInfo.hlsProxyUrl,
+              streamUrl: kickInfo.hlsProxyUrl
+            });
+          }
+        }
+      }
+
+      // Execute yt-dlp to inspect stream metadata for YouTube / Twitch
       const ytDlpResult = await ytDlpRunner([
         "--no-warnings",
         "--no-progress",
@@ -105,6 +189,94 @@ export function registerLiveRoutes(app, deps) {
     }
   });
 
+  // ==========================================
+  // Kick HLS Proxy Endpoints (CORS-friendly, Full Native DVR Scrubbing)
+  // ==========================================
+
+  // Proxy Kick Master Manifest
+  app.get("/api/live/kick-hls/:channel/master.m3u8", async (req, res) => {
+    try {
+      const { channel } = req.params;
+      const kickInfo = await resolveKickStream(channel);
+      if (!kickInfo?.masterM3u8) {
+        return res.status(404).send("Kick stream master manifest not found.");
+      }
+      const upstream = await fetch(kickInfo.masterM3u8, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const text = await upstream.text();
+      // Rewrite variant playlist URLs to route through proxy
+      const rewritten = text.replace(/^([0-9a-zA-Z_.-]+\/playlist\.m3u8)(\r?)$/gm, (m, file, r) => {
+        return `/api/live/kick-hls/${channel}/${file}${r}`;
+      });
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "no-cache");
+      return res.send(rewritten);
+    } catch (e) {
+      console.error("[Kick HLS Proxy] Master manifest error:", e.message);
+      return res.status(500).send("Error fetching master manifest");
+    }
+  });
+
+  // Proxy Kick Quality / Sub-playlist
+  app.get("/api/live/kick-hls/:channel/:quality/playlist.m3u8", async (req, res) => {
+    try {
+      const { channel, quality } = req.params;
+      const kickInfo = await resolveKickStream(channel);
+      if (!kickInfo?.masterM3u8) {
+        return res.status(404).send("Kick stream quality manifest not found.");
+      }
+      const baseDir = kickInfo.masterM3u8.substring(0, kickInfo.masterM3u8.lastIndexOf("/"));
+      const upstreamUrl = `${baseDir}/${quality}/playlist.m3u8`;
+      const upstream = await fetch(upstreamUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const text = await upstream.text();
+      // Rewrite .ts segment filenames to route through proxy
+      const rewritten = text.replace(/^([0-9a-zA-Z_.-]+\.ts.*)(\r?)$/gm, (m, file, r) => {
+        return `/api/live/kick-hls/${channel}/${quality}/${file}${r}`;
+      });
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "no-cache");
+      return res.send(rewritten);
+    } catch (e) {
+      console.error("[Kick HLS Proxy] Quality playlist error:", e.message);
+      return res.status(500).send("Error fetching quality playlist");
+    }
+  });
+
+  // Proxy Kick Video Segment (.ts)
+  app.get("/api/live/kick-hls/:channel/:quality/:segment", async (req, res) => {
+    try {
+      const { channel, quality, segment } = req.params;
+      const kickInfo = await resolveKickStream(channel);
+      if (!kickInfo?.masterM3u8) {
+        return res.status(404).send("Kick stream segment not found.");
+      }
+      const baseDir = kickInfo.masterM3u8.substring(0, kickInfo.masterM3u8.lastIndexOf("/"));
+      const segmentUrl = `${baseDir}/${quality}/${segment}`;
+      const upstream = await fetch(segmentUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      res.setHeader("Content-Type", "video/MP2T");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      const stream = Readable.fromWeb(upstream.body);
+      stream.on("error", () => {});
+      res.on("close", () => {
+        try { stream.destroy(); } catch {}
+      });
+      stream.pipe(res);
+    } catch (e) {
+      return res.status(500).send(e.message);
+    }
+  });
+
   // 2. Slice specific DVR window and create standard Fivestar project & clip (Instant Mode)
   app.post("/api/live/slice", async (req, res) => {
     try {
@@ -143,9 +315,22 @@ export function registerLiveRoutes(app, deps) {
 
       const targetSrcFile = path.join(cPath, "src.mp4");
 
-      console.log(`[Live Clipper] Slicing stream: ${url} from ${start.toFixed(2)}s to ${end.toFixed(2)}s into ${targetSrcFile}...`);
+      // Determine target URL: For Kick, prefer masterM3u8 with full DVR history
+      let targetDownloadUrl = url;
+      if (platform === "kick") {
+        const kickMatch = url.match(/kick\.com\/([^/?#]+)/);
+        const channelName = kickMatch ? kickMatch[1].toLowerCase() : "";
+        const kickInfo = channelName ? (kickStreamCache.get(channelName) || await resolveKickStream(channelName)) : null;
+        if (kickInfo?.masterM3u8) {
+          targetDownloadUrl = kickInfo.masterM3u8;
+        } else if (req.body?.masterM3u8) {
+          targetDownloadUrl = req.body.masterM3u8;
+        }
+      }
 
-      // Execute yt-dlp slice (use --live-from-start for YouTube DVR, standard download-sections for Kick/Twitch)
+      console.log(`[Live Clipper] Slicing stream: ${url} (target: ${targetDownloadUrl.slice(0, 70)}...) from ${start.toFixed(2)}s to ${end.toFixed(2)}s into ${targetSrcFile}...`);
+
+      // Execute yt-dlp slice (use --live-from-start for YouTube DVR, direct timestamp download-sections for Kick DVR)
       const ytArgs = [
         "--no-warnings",
         "--force-overwrites"
@@ -154,8 +339,11 @@ export function registerLiveRoutes(app, deps) {
       if (platform === "youtube") {
         ytArgs.push("--live-from-start");
         sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
+      } else if (platform === "kick" && targetDownloadUrl.includes("stream.kick.com")) {
+        // Kick full DVR master playlist: slice exact timestamps from the recorded stream!
+        sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
       } else {
-        // Kick & Twitch rolling streams: if start is offset by default 2hr buffer, normalize to 0..duration
+        // Fallback for rolling streams without master
         const duration = Math.min(180, Math.max(3, end - start));
         sectionArg = start >= 300 ? `*0-${duration.toFixed(2)}` : `*${start.toFixed(2)}-${end.toFixed(2)}`;
       }
@@ -165,7 +353,7 @@ export function registerLiveRoutes(app, deps) {
         "-S", "res:1080,vcodec:h264,acodec:aac",
         "--merge-output-format", "mp4",
         "-o", path.join(cPath, "src.%(ext)s"),
-        url
+        targetDownloadUrl
       );
       const sliceResult = await ytDlpRunner(ytArgs, { timeout: 90e3 });
 
@@ -336,7 +524,8 @@ export function registerLiveRoutes(app, deps) {
           channel,
           duration: mediaInfo.duration || clipDuration,
           thumbnail: req.body?.thumbnail || "",
-          id: videoId
+          id: videoId,
+          videoId: videoId
         },
         status: "ready",
         steps: [],
