@@ -667,8 +667,10 @@ export function registerLiveRoutes(app, deps) {
 
       // Trigger Whisper transcription asynchronously
       if (typeof transcribe === "function") {
-        transcribe(projectId, clipId, {})
-          .then(() => console.log(`[Live Clipper] Clip ${clipId} transcription completed.`))
+        const reqLang = typeof req.body?.language === "string" && /^[a-z]{2,3}$/.test(req.body.language) ? req.body.language : undefined;
+        const reqTranslate = req.body?.translate === true || req.body?.translate === "true";
+        transcribe(projectId, clipId, { language: reqLang, translate: reqTranslate })
+          .then(() => console.log(`[Live Clipper] Clip ${clipId} transcription completed (lang: ${reqLang || 'auto'}, translate: ${reqTranslate}).`))
           .catch(e => console.warn(`[Live Clipper] Transcription notice:`, e.message));
       }
 

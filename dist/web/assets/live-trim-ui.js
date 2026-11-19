@@ -1286,6 +1286,15 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [loadingInfo, setLoadingInfo] = useState(false);
     const [trim, setTrim] = useState({ start: 0, end: 60, duration: 60 });
     const [selectedQuality, setSelectedQuality] = useState("best");
+    const [selectedLang, setSelectedLang] = useState("hi");
+    const [translateToEn, setTranslateToEn] = useState(false);
+
+    useEffect(() => {
+      if (streamInfo?.title) {
+        const isIndian = /india|hindi|live stream india|[\u0900-\u097F]/i.test(streamInfo.title);
+        if (isIndian) setSelectedLang("hi");
+      }
+    }, [streamInfo]);
     const [isSlicing, setIsSlicing] = useState(false);
     const [sliceProgress, setSliceProgress] = useState("");
     const [lastCreatedClip, setLastCreatedClip] = useState(null);
@@ -1363,7 +1372,9 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
             thumbnail: streamInfo.thumbnail,
-            quality: selectedQuality
+            quality: selectedQuality,
+            language: selectedLang,
+            translate: translateToEn
           })
         });
         const data = await res.json();
@@ -1453,7 +1464,9 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
             thumbnail: streamInfo.thumbnail,
-            quality: selectedQuality
+            quality: selectedQuality,
+            language: selectedLang,
+            translate: translateToEn
           })
         });
 
@@ -1708,6 +1721,78 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                             style: { background: "#1c142d", color: "#f3effa" },
                             children: q.label
                           }))
+                        })
+                      ]
+                    }),
+                    jsxs("div", {
+                      style: {
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        background: "rgba(24, 17, 38, 0.95)",
+                        border: "1px solid #4a3869",
+                        borderRadius: "8px",
+                        padding: "3px 8px",
+                        color: "#e2e8f0"
+                      },
+                      children: [
+                        jsx("span", {
+                          style: { fontSize: "12px", color: "#a1a1aa", fontWeight: 600, display: "flex", alignItems: "center", gap: 3 },
+                          children: ["🗣️ Captions:"]
+                        }),
+                        jsx("select", {
+                          value: selectedLang,
+                          onChange: (e) => setSelectedLang(e.target.value),
+                          style: {
+                            background: "transparent",
+                            border: "none",
+                            color: "#38e8ff",
+                            fontWeight: 700,
+                            fontSize: "12.5px",
+                            cursor: "pointer",
+                            outline: "none",
+                            paddingRight: "4px"
+                          },
+                          title: "Select spoken language for AI captions",
+                          children: [
+                            { id: "hi", label: "Hindi (हिंदी)" },
+                            { id: "en", label: "English" },
+                            { id: "ur", label: "Urdu (اردو)" },
+                            { id: "bn", label: "Bengali" },
+                            { id: "ta", label: "Tamil" },
+                            { id: "te", label: "Telugu" },
+                            { id: "mr", label: "Marathi" },
+                            { id: "pa", label: "Punjabi" },
+                            { id: "es", label: "Spanish" },
+                            { id: "pt", label: "Portuguese" },
+                            { id: "fr", label: "French" }
+                          ].map(q => jsx("option", {
+                            key: q.id,
+                            value: q.id,
+                            style: { background: "#1c142d", color: "#f3effa" },
+                            children: q.label
+                          }))
+                        }),
+                        jsxs("label", {
+                          style: {
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            cursor: "pointer",
+                            fontSize: "11px",
+                            color: translateToEn ? "#86efac" : "#a1a1aa",
+                            marginLeft: 4
+                          },
+                          title: "Translate spoken language to English captions",
+                          children: [
+                            jsx("input", {
+                              type: "checkbox",
+                              checked: translateToEn,
+                              onChange: (e) => setTranslateToEn(e.target.checked),
+                              style: { cursor: "pointer", accentColor: "#86efac" }
+                            }),
+                            "To English"
+                          ]
                         })
                       ]
                     }),
