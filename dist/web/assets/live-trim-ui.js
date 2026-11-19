@@ -336,6 +336,53 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         color: #f87171;
         border-color: rgba(248, 113, 113, 0.25);
       }
+      /* Stream Moments 2-Column Layout & Info Card */
+      .moments-layout {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) !important;
+        align-items: start !important;
+        gap: 24px !important;
+        margin-top: 20px !important;
+      }
+      @media (max-width: 1100px) {
+        .moments-layout {
+          grid-template-columns: 1fr !important;
+        }
+      }
+      .aside {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 16px !important;
+        width: 100% !important;
+      }
+      .moment-info-card {
+        padding: 20px 22px;
+        background: rgba(22, 16, 42, 0.75);
+        border: 2px solid #22c55e;
+        border-radius: 14px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .moment-info-card .aside-block {
+        margin-bottom: 0;
+      }
+      .moment-info-card h3 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 15px;
+        font-weight: 700;
+        color: #ffffff;
+        margin: 0 0 10px 0;
+      }
+      .moment-info-card .aside-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 4px 0;
+      }
+
       /* Live Clipper Dedicated View */
       .live-clipper-container {
         max-width: 1040px;
@@ -709,9 +756,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     endTime = 60,
     onTrimChange,
     onAddMoment,
+    onApplyChanges,
     onSeek,
     isLive = false,
     addLabel = "Add moment",
+    applyLabel = "Apply Changes",
     extraAction = null
   }) {
     const totalDuration = Math.max(10, duration);
@@ -724,16 +773,30 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const trackRef = useRef(null);
     const loopTimerRef = useRef(null);
 
-    // Sync external props if changed
+    // Sync when moment prop changes or selected
     useEffect(() => {
-      if (Number.isFinite(startTime) && startTime !== start) {
-        setStart(Math.max(0, Math.min(startTime, totalDuration - 3)));
+      if (moment) {
+        const mStart = Number.isFinite(moment.start) ? moment.start : startTime;
+        const mEnd = Number.isFinite(moment.end) ? moment.end : endTime;
+        const s = Math.max(0, Math.min(mStart, totalDuration - 3));
+        const e = Math.max(s + 3, Math.min(mEnd, totalDuration));
+        setStart(s);
+        setEnd(e);
+        setPlayhead(s);
+        seekActivePlayers(s);
+      }
+    }, [moment?.id, moment?.start, moment?.end]);
+
+    // Sync external props if changed (and not actively dragging)
+    useEffect(() => {
+      if (Number.isFinite(startTime) && !dragging) {
+        setStart(prev => (Math.abs(startTime - prev) > 0.1 ? Math.max(0, Math.min(startTime, totalDuration - 3)) : prev));
       }
     }, [startTime, totalDuration]);
 
     useEffect(() => {
-      if (Number.isFinite(endTime) && endTime !== end && endTime > start) {
-        setEnd(Math.max(start + 3, Math.min(endTime, totalDuration)));
+      if (Number.isFinite(endTime) && !dragging) {
+        setEnd(prev => (Math.abs(endTime - prev) > 0.1 ? Math.max(start + 3, Math.min(endTime, totalDuration)) : prev));
       }
     }, [endTime, totalDuration, start]);
 
@@ -1067,9 +1130,29 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
 
               // Right: Action button(s)
               jsxs("div", {
-                style: { display: "flex", gap: "8px", alignItems: "center" },
+                style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" },
                 children: [
                   extraAction,
+                  onApplyChanges && jsx("button", {
+                    type: "button",
+                    className: "btn btn-secondary",
+                    style: {
+                      minWidth: "130px",
+                      background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                      color: "#ffffff",
+                      border: "none",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 2px 10px rgba(34, 197, 94, 0.35)",
+                      borderRadius: "8px",
+                      padding: "8px 16px"
+                    },
+                    disabled: !isDurationGood,
+                    onClick: () => {
+                      onApplyChanges({ start, end, duration: clipDuration });
+                    },
+                    children: applyLabel
+                  }),
                   jsx("button", {
                     type: "button",
                     className: "btn btn-primary",
