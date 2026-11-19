@@ -53,11 +53,14 @@ function openSettingsModal() {
 
 function captureCoverDataUrl() {
   try {
-    const canvas = document.querySelector(".cover-preview canvas");
+    const canvas =
+      document.querySelector(".cover-preview canvas") ||
+      document.querySelector(".cover-maker canvas") ||
+      document.querySelector(".cover-group canvas");
     if (!canvas || !canvas.width || !canvas.height) return "";
-    let dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    if (dataUrl.length > 2_400_000) {
-      dataUrl = canvas.toDataURL("image/jpeg", 0.72);
+    let dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    if (dataUrl.length > 2_000_000) {
+      dataUrl = canvas.toDataURL("image/jpeg", 0.75);
     }
     return dataUrl;
   } catch {
@@ -639,6 +642,7 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
       }
     });
     const [uploading, setUploading] = useState(false);
+    const [updatingThumb, setUpdatingThumb] = useState(false);
     const [error, setError] = useState("");
     const [localFile, setLocalFile] = useState(null);
     const [lastResult, setLastResult] = useState(clip.youtubeUpload || null);
@@ -647,6 +651,26 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
       setLastResult(clip.youtubeUpload || null);
       setError("");
     }, [clip.id, clip.youtubeUpload?.videoId]);
+
+    const handleUpdateThumbnail = async () => {
+      const vidId = lastResult?.videoId || clip.youtubeUpload?.videoId;
+      if (!vidId) return;
+      setUpdatingThumb(true);
+      try {
+        const thumbData = captureCoverDataUrl();
+        await apiJson(`/api/projects/${project.id}/clips/${clip.id}/upload/youtube/thumbnail`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoId: vidId, thumbnailDataUrl: thumbData }),
+        });
+        toast("Cover image applied to YouTube Shorts! (YouTube may take 1-2 minutes to refresh the channel grid)");
+        setLastResult((prev) => (prev ? { ...prev, thumbnailUploaded: true, thumbnailWarning: "" } : null));
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        setUpdatingThumb(false);
+      }
+    };
 
     const yt = status?.youtube;
     const isLocalProject = project.source?.kind === "local";
@@ -908,20 +932,31 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
         }),
 
         // Cover image thumbnail option
-        jsxs("label", {
-          className: "row",
-          style: { gap: 8, fontSize: 13.5, cursor: "pointer" },
+        jsxs("div", {
+          className: "stack",
+          style: { gap: 4 },
           children: [
-            jsx("input", {
-              type: "checkbox",
-              checked: uploadThumbnail,
-              disabled: uploading,
-              onChange: (e) => {
-                setUploadThumbnail(e.target.checked);
-                try { localStorage.setItem("fivestar_yt_thumbnail", String(e.target.checked)); } catch {}
-              },
+            jsxs("label", {
+              className: "row",
+              style: { gap: 8, fontSize: 13.5, cursor: "pointer" },
+              children: [
+                jsx("input", {
+                  type: "checkbox",
+                  checked: uploadThumbnail,
+                  disabled: uploading,
+                  onChange: (e) => {
+                    setUploadThumbnail(e.target.checked);
+                    try { localStorage.setItem("fivestar_yt_thumbnail", String(e.target.checked)); } catch {}
+                  },
+                }),
+                "Upload Cover image as YouTube thumbnail",
+              ],
             }),
-            "Upload Cover image as YouTube thumbnail",
+            jsx("span", {
+              className: "note",
+              style: { fontSize: 12, marginLeft: 24 },
+              children: "Automatically sets your 9:16 vertical Cover frame and locks it in after YouTube finishes processing.",
+            }),
           ],
         }),
 
@@ -1017,6 +1052,18 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                     target: "_blank",
                     rel: "noreferrer",
                     children: [jsx(External, { size: 13 }), "YouTube Studio"],
+                  }),
+                  jsxs("button", {
+                    type: "button",
+                    className: "btn btn-small",
+                    disabled: updatingThumb,
+                    onClick: handleUpdateThumbnail,
+                    title: "Apply or re-sync the 9:16 Cover image to this live YouTube Short",
+                    style: { gap: 4, display: "inline-flex", alignItems: "center" },
+                    children: [
+                      updatingThumb ? jsx(Spinner, { size: 13 }) : "🖼️",
+                      updatingThumb ? "Applying Thumbnail…" : "Apply Cover to Short",
+                    ],
                   }),
                 ],
               }),

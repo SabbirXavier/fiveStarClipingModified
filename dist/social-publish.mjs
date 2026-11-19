@@ -664,6 +664,49 @@ export function registerSocialRoutes(app, deps) {
     res.json(publicStatus(req, store));
   });
 
+  // Background worker to re-apply custom 9:16 cover thumbnail once YouTube video transcoding completes
+  async function ensureThumbnailAfterProcessing(videoId, thumbBuf, mime, store) {
+    const maxChecks = 15; // 15 checks * 8s = 2 minutes max
+    for (let i = 1; i <= maxChecks; i++) {
+      await new Promise((r) => setTimeout(r, 8000));
+      try {
+        const token = await ensureYouTubeAccessToken(store);
+        const res = await fetch(
+          `https://www.googleapis.com/youtube/v3/videos?part=processingDetails,status&id=${encodeURIComponent(videoId)}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!res.ok) continue;
+        const data = parseJsonSafe(await res.text());
+        const proc = data?.items?.[0]?.processingDetails;
+        const status = proc?.processingStatus;
+        console.log(`[YouTube Thumbnail Watcher] Video ${videoId} processing status (${i}/${maxChecks}): ${status || "unknown"}`);
+        if (status === "succeeded" || i === maxChecks) {
+          // Video finished processing! Re-apply custom thumbnail so YouTube Shorts locks it in.
+          const reResp = await fetch(
+            `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": mime,
+                "Content-Length": String(thumbBuf.length),
+              },
+              body: thumbBuf,
+            }
+          );
+          if (reResp.ok) {
+            console.log(`[YouTube Thumbnail Watcher] Successfully locked in custom Shorts cover thumbnail for video ${videoId} after processing completed.`);
+          } else {
+            console.warn(`[YouTube Thumbnail Watcher] Re-applying thumbnail returned HTTP ${reResp.status}`);
+          }
+          break;
+        }
+      } catch (e) {
+        console.warn(`[YouTube Thumbnail Watcher] Notice:`, e.message);
+      }
+    }
+  }
+
   // ---- YouTube Direct Upload ----
   app.post(
     "/api/projects/:id/clips/:clipId/upload/youtube",
@@ -781,6 +824,11 @@ export function registerSocialRoutes(app, deps) {
             const mime = match[1];
             const thumbBuf = Buffer.from(match[2], "base64");
             if (thumbBuf.length > 0 && thumbBuf.length <= 2 * 1024 * 1024) {
+              // Persist cover.jpg in clip folder
+              try {
+                fs.writeFileSync(path.join(projectDir(p.id), "clips", clip.id, "cover.jpg"), thumbBuf);
+              } catch {}
+
               try {
                 const thumbResp = await fetch(
                   `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(putData.id)}&uploadType=media`,
@@ -796,6 +844,8 @@ export function registerSocialRoutes(app, deps) {
                 );
                 if (thumbResp.ok) {
                   thumbnailUploaded = true;
+                  // Start background watcher to re-apply custom 9:16 thumbnail once YouTube video transcoding finishes
+                  ensureThumbnailAfterProcessing(putData.id, thumbBuf, mime, store);
                 } else {
                   const thumbErr = parseJsonSafe(await thumbResp.text());
                   thumbnailWarning = formatGoogleError(
@@ -837,6 +887,100 @@ export function registerSocialRoutes(app, deps) {
         if (resolved?.cleanup && resolved.filePath) {
           fs.rmSync(resolved.filePath, { force: true });
         }
+      }
+    }
+  );
+
+  // ---- YouTube Re-apply / Set Cover Thumbnail Endpoint ----
+  app.post(
+    "/api/projects/:id/clips/:clipId/upload/youtube/thumbnail",
+    optionalMultipart,
+    async (req, res, next) => {
+      try {
+        const { p, clip } = getProjectAndClip(req);
+        const videoId = String(req.body?.videoId || clip.youtubeUpload?.videoId || "").trim();
+        if (!videoId) {
+          return res.status(400).json({ error: "This clip has not been uploaded to YouTube yet (no videoId found)." });
+        }
+
+        const store = loadStore();
+        const accessToken = await ensureYouTubeAccessToken(store);
+
+        let thumbBuf = null;
+        let mime = "image/jpeg";
+
+        const thumbDataUrl = typeof req.body?.thumbnailDataUrl === "string" ? req.body.thumbnailDataUrl.trim() : "";
+        if (thumbDataUrl) {
+          const match = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/.exec(thumbDataUrl);
+          if (match) {
+            mime = match[1];
+            thumbBuf = Buffer.from(match[2], "base64");
+          }
+        }
+
+        // Fallback to cover.jpg, thumb-*.jpg or poster.jpg on disk
+        if (!thumbBuf) {
+          const cDir = path.join(projectDir(p.id), "clips", clip.id);
+          const coverPath = path.join(cDir, "cover.jpg");
+          if (fs.existsSync(coverPath)) {
+            thumbBuf = fs.readFileSync(coverPath);
+          } else if (fs.existsSync(cDir)) {
+            const files = fs.readdirSync(cDir);
+            const thumbFile = files.find(f => f.startsWith("thumb-") && f.endsWith(".jpg"));
+            if (thumbFile) {
+              thumbBuf = fs.readFileSync(path.join(cDir, thumbFile));
+            } else if (fs.existsSync(path.join(cDir, "poster.jpg"))) {
+              thumbBuf = fs.readFileSync(path.join(cDir, "poster.jpg"));
+            }
+          }
+        }
+
+        if (!thumbBuf || thumbBuf.length === 0) {
+          return res.status(400).json({ error: "No Cover image found to upload. Please ensure a Cover frame is selected." });
+        }
+
+        if (thumbBuf.length > 2 * 1024 * 1024) {
+          return res.status(400).json({ error: "Cover image exceeds YouTube's 2 MB limit." });
+        }
+
+        // Save cover.jpg for persistence
+        try {
+          fs.writeFileSync(path.join(projectDir(p.id), "clips", clip.id, "cover.jpg"), thumbBuf);
+        } catch {}
+
+        const thumbResp = await fetch(
+          `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": mime,
+              "Content-Length": String(thumbBuf.length),
+            },
+            body: thumbBuf,
+          }
+        );
+
+        if (!thumbResp.ok) {
+          const thumbErr = parseJsonSafe(await thumbResp.text());
+          throw new Error(formatGoogleError(thumbErr, `YouTube returned HTTP ${thumbResp.status}`));
+        }
+
+        const thumbData = parseJsonSafe(await thumbResp.text());
+        if (clip.youtubeUpload) {
+          clip.youtubeUpload.thumbnailUploaded = true;
+          clip.youtubeUpload.thumbnailWarning = "";
+          saveProject(p, true);
+        }
+
+        return res.json({
+          ok: true,
+          videoId,
+          message: "Cover image successfully set as YouTube Shorts thumbnail!",
+          thumbnail: thumbData
+        });
+      } catch (err) {
+        next(err);
       }
     }
   );
