@@ -3,6 +3,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
 import { LiveBufferManager } from "./live-buffer.mjs";
@@ -272,6 +273,7 @@ export function registerLiveRoutes(app, deps) {
   const {
     getProject,
     saveProject,
+    getAllProjects,
     projectDir,
     clipDir,
     probe,
@@ -298,6 +300,168 @@ export function registerLiveRoutes(app, deps) {
     if (u.includes("twitch.tv")) return "twitch";
     if (u.includes("kick.com")) return "kick";
     return "youtube";
+  }
+
+  // Deterministic project ID for live streams
+  function getLiveProjectId(url, videoId, platform, channel) {
+    let vid = String(videoId || "").trim();
+    if (!vid || vid === "live") {
+      const ytMatch = String(url || "").match(/(?:v=|\/live\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+      if (ytMatch) vid = ytMatch[1];
+    }
+    if (vid && vid !== "live" && /^[a-zA-Z0-9_-]{4,24}$/.test(vid)) {
+      return `plive_${vid}`;
+    }
+    let ch = String(channel || "").trim().toLowerCase();
+    if (!ch) {
+      if (platform === "twitch") {
+        const m = String(url || "").match(/twitch\.tv\/([a-zA-Z0-9_]+)/i);
+        if (m) ch = m[1].toLowerCase();
+      } else if (platform === "kick") {
+        const m = String(url || "").match(/kick\.com\/([a-zA-Z0-9_]+)/i);
+        if (m) ch = m[1].toLowerCase();
+      }
+    }
+    if (platform === "twitch" && ch) {
+      return `plive_tw_${ch.replace(/[^a-zA-Z0-9_-]/g, "_")}`.slice(0, 30);
+    }
+    if (platform === "kick" && ch) {
+      return `plive_k_${ch.replace(/[^a-zA-Z0-9_-]/g, "_")}`.slice(0, 30);
+    }
+    const hash = crypto.createHash("md5").update(url || "").digest("hex").slice(0, 12);
+    return `plive_${hash}`;
+  }
+
+  // Ensure persistent live stream project exists, has proper metadata, and aggregates clips
+  function ensureLiveProject(streamMeta) {
+    const { url = "", videoId = "", platform = "youtube", channel = "", title = "", thumbnail = "", duration = 0 } = streamMeta;
+    const targetId = getLiveProjectId(url, videoId, platform, channel);
+    let project = getProject(targetId);
+
+    // If not in memory, check on disk
+    if (!project) {
+      const pFile = path.join(projectDir(targetId), "project.json");
+      if (fs.existsSync(pFile)) {
+        try {
+          project = JSON.parse(fs.readFileSync(pFile, "utf8"));
+          saveProject(project, false);
+        } catch (e) {
+          console.warn(`[Live Clipper] Error loading project ${targetId}:`, e.message);
+        }
+      }
+    }
+
+    // Find all existing projects (in-memory or on disk) to check for legacy scattered clips
+    const allProjects = typeof getAllProjects === "function" ? getAllProjects() : [];
+    
+    // Also scan data/projects directory if needed
+    try {
+      const rootProjDir = path.dirname(projectDir(targetId));
+      if (fs.existsSync(rootProjDir)) {
+        for (const dirName of fs.readdirSync(rootProjDir)) {
+          if (dirName.startsWith("plive") && dirName !== targetId && !allProjects.some(p => p.id === dirName)) {
+            const legFile = path.join(rootProjDir, dirName, "project.json");
+            if (fs.existsSync(legFile)) {
+              try {
+                const legProj = JSON.parse(fs.readFileSync(legFile, "utf8"));
+                allProjects.push(legProj);
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch {}
+
+    const legacyMatches = allProjects.filter(p => {
+      if (p.id === targetId) return false;
+      if (videoId && videoId !== "live" && (p.source?.videoId === videoId || p.source?.id === videoId)) return true;
+      if (url && p.source?.url && (p.source.url.split("?")[0].toLowerCase() === url.split("?")[0].toLowerCase())) return true;
+      return false;
+    });
+
+    if (!project) {
+      project = {
+        id: targetId,
+        createdAt: Date.now(),
+        source: {
+          kind: "url",
+          url: url || "",
+          platform: platform || "youtube",
+          title: title ? `[LIVE] ${title}` : "[LIVE] Live Stream",
+          channel: channel || "Live Streamer",
+          duration: duration || 0,
+          thumbnail: thumbnail || "",
+          id: videoId || targetId,
+          videoId: videoId || targetId
+        },
+        status: "ready",
+        steps: [],
+        signals: [{ key: "manual", available: true, detail: "Live stream DVR clipping" }],
+        moments: [],
+        clips: [],
+        timeline: []
+      };
+    }
+
+    if (!Array.isArray(project.clips)) {
+      project.clips = [];
+    }
+    if (!Array.isArray(project.moments)) {
+      project.moments = [];
+    }
+
+    // Migrate clips from legacy matching single-clip projects into this unified project
+    for (const leg of legacyMatches) {
+      if (Array.isArray(leg.clips)) {
+        for (const c of leg.clips) {
+          if (!project.clips.some(existing => existing.id === c.id)) {
+            const oldClipDir = clipDir(leg.id, c.id);
+            const newClipDir = clipDir(targetId, c.id);
+            if (fs.existsSync(oldClipDir) && !fs.existsSync(newClipDir)) {
+              try {
+                fs.cpSync(oldClipDir, newClipDir, { recursive: true });
+              } catch (cpErr) {
+                console.warn(`[Live Clipper] Legacy clip copy error for ${c.id}:`, cpErr.message);
+              }
+            }
+            const cloned = { ...c };
+            if (cloned.src?.file) cloned.src.file = `clips/${c.id}/src.mp4`;
+            if (cloned.poster) cloned.poster = `clips/${c.id}/poster.jpg`;
+            if (cloned.output?.file) {
+              cloned.output.file = cloned.output.file.replace(/clips\/[^/]+\//, `clips/${c.id}/`);
+            }
+            if (cloned.output?.thumb) {
+              cloned.output.thumb = cloned.output.thumb.replace(/clips\/[^/]+\//, `clips/${c.id}/`);
+            }
+            project.clips.push(cloned);
+          }
+        }
+      }
+      if (Array.isArray(leg.moments)) {
+        for (const m of leg.moments) {
+          if (!project.moments.some(existing => existing.id === m.id)) {
+            project.moments.push(m);
+          }
+        }
+      }
+    }
+
+    // Update metadata if live info has improved
+    if (title && (!project.source.title || project.source.title === "[LIVE] Live Stream")) {
+      project.source.title = `[LIVE] ${title}`;
+    }
+    if (channel && (!project.source.channel || project.source.channel === "Live Streamer")) {
+      project.source.channel = channel;
+    }
+    if (thumbnail && (!project.source.thumbnail || project.source.thumbnail.length < 5)) {
+      project.source.thumbnail = thumbnail;
+    }
+    if (duration && duration > (project.source.duration || 0)) {
+      project.source.duration = duration;
+    }
+
+    saveProject(project, true);
+    return project;
   }
 
   // ==========================================
@@ -527,8 +691,26 @@ export function registerLiveRoutes(app, deps) {
         }
       }
 
+      // Ensure persistent live stream project exists and retrieve its clips
+      let liveProject = null;
+      try {
+        liveProject = ensureLiveProject({
+          url: meta.webpage_url || url,
+          videoId,
+          platform,
+          channel,
+          title,
+          thumbnail,
+          duration
+        });
+      } catch (projErr) {
+        console.warn("[Live Clipper] Error ensuring live project in info:", projErr.message);
+      }
+
       return res.json({
         ok: true,
+        projectId: liveProject ? liveProject.id : getLiveProjectId(url, videoId, platform, channel),
+        clips: liveProject?.clips || [],
         isLive: isLiveNow,
         platform,
         videoId,
@@ -663,8 +845,21 @@ export function registerLiveRoutes(app, deps) {
         return res.status(400).json({ error: "Keep clips under 3 minutes for Shorts and Reels." });
       }
 
-      // Generate unique IDs
-      const projectId = "plive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+      // Target persistent live stream project
+      const projectId = req.body?.projectId && /^[a-zA-Z0-9_-]{4,32}$/.test(req.body.projectId)
+        ? req.body.projectId
+        : getLiveProjectId(url, videoId, platform, channel);
+
+      const project = ensureLiveProject({
+        url,
+        videoId,
+        platform,
+        channel,
+        title,
+        thumbnail: req.body?.thumbnail || "",
+        duration: streamDuration || end
+      });
+
       const clipId = "clive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
       const momentId = "mlive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
 
@@ -1036,43 +1231,31 @@ export function registerLiveRoutes(app, deps) {
         poster: fs.existsSync(posterFile) ? `clips/${clipId}/poster.jpg` : undefined
       };
 
-      // Construct standard Project
-      const project = {
-        id: projectId,
-        createdAt: Date.now(),
-        source: {
-          kind: "url",
-          url,
-          platform,
-          title: `[LIVE] ${title}`,
-          channel,
-          duration: mediaInfo.duration || clipDuration,
-          thumbnail: req.body?.thumbnail || "",
-          id: videoId,
-          videoId: videoId
-        },
-        status: "ready",
-        steps: [],
-        signals: [
-          { key: "manual", available: true, detail: trimDetail }
-        ],
-        moments: [
-          {
-            id: momentId,
-            rank: 1,
-            start: 0,
-            end: mediaInfo.duration || clipDuration,
-            heat: 99,
-            stars: 5,
-            reasons: [{ signal: "manual", label: trimLabel }],
-            chat: []
-          }
-        ],
-        clips: [clip],
-        timeline: []
-      };
+      // Append clip to persistent project
+      if (!Array.isArray(project.clips)) {
+        project.clips = [];
+      }
+      if (!Array.isArray(project.moments)) {
+        project.moments = [];
+      }
+      project.moments.unshift({
+        id: momentId,
+        rank: (project.moments?.length || 0) + 1,
+        start: Math.max(0, start),
+        end: Math.max(start + 1, end),
+        heat: 99,
+        stars: 5,
+        reasons: [{ signal: "manual", label: trimLabel }],
+        chat: []
+      });
 
-      // Save project
+      // Place newest clip first
+      project.clips.unshift(clip);
+      if (end > (project.source.duration || 0)) {
+        project.source.duration = end;
+      }
+
+      // Save project to disk & memory
       saveProject(project, true);
 
       // Trigger Whisper transcription asynchronously
@@ -1084,17 +1267,68 @@ export function registerLiveRoutes(app, deps) {
           .catch(e => console.warn(`[Live Clipper] Transcription notice:`, e.message));
       }
 
-      console.log(`[Live Clipper] Successfully created project ${projectId} with clip ${clipId}`);
+      console.log(`[Live Clipper] Successfully created clip ${clipId} in project ${projectId} (total clips: ${project.clips.length})`);
 
       return res.json({
         ok: true,
         projectId,
         clipId,
-        clip
+        clip,
+        clips: project.clips
       });
     } catch (err) {
       console.error("[Live Clipper] Slice handler crashed:", err);
       return res.status(500).json({ error: err.message || "Failed to slice live stream." });
+    }
+  });
+
+  // Get live project details and clips
+  app.get("/api/live/project", (req, res) => {
+    try {
+      const id = String(req.query?.id || "").trim();
+      const url = String(req.query?.url || "").trim();
+      const videoId = String(req.query?.videoId || "").trim();
+      let project = null;
+      if (id) {
+        project = getProject(id);
+      }
+      if (!project && (url || videoId)) {
+        const pid = getLiveProjectId(url, videoId, detectPlatform(url), "");
+        project = getProject(pid);
+        if (!project) {
+          const all = typeof getAllProjects === "function" ? getAllProjects() : [];
+          project = all.find(p => p.id === pid || (videoId && p.source?.videoId === videoId) || (url && p.source?.url === url));
+        }
+      }
+      if (!project) {
+        return res.status(404).json({ error: "Live project not found" });
+      }
+      return res.json({
+        ok: true,
+        projectId: project.id,
+        project,
+        clips: project.clips || []
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete clip alias for live projects
+  app.delete("/api/live/project/:projectId/clip/:clipId", (req, res) => {
+    try {
+      const { projectId, clipId } = req.params;
+      const project = getProject(projectId);
+      if (!project) return res.status(404).json({ error: "Project not found" });
+      project.clips = (project.clips || []).filter(c => c.id !== clipId);
+      const cDir = clipDir(projectId, clipId);
+      if (fs.existsSync(cDir)) {
+        try { fs.rmSync(cDir, { recursive: true, force: true }); } catch {}
+      }
+      saveProject(project, true);
+      return res.json({ ok: true, clips: project.clips });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
   });
 

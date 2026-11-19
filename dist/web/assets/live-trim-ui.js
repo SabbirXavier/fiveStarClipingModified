@@ -4,6 +4,33 @@
 export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, router, toast }) {
   const { useState, useEffect, useRef, useCallback } = React;
 
+  // Pure Lucide SVG Icons for Clips Shelf
+  const EditIcon = ({ size = 14 }) => jsx("svg", {
+    width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+    children: [
+      jsx("path", { d: "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" }),
+      jsx("path", { d: "m15 5 4 4" })
+    ]
+  });
+
+  const DownloadIcon = ({ size = 14 }) => jsx("svg", {
+    width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+    children: [
+      jsx("path", { d: "M12 15V3" }),
+      jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
+      jsx("path", { d: "m7 10 5 5 5-5" })
+    ]
+  });
+
+  const TrashIcon = ({ size = 14 }) => jsx("svg", {
+    width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+    children: [
+      jsx("path", { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" }),
+      jsx("path", { d: "M3 6h18" }),
+      jsx("path", { d: "M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" })
+    ]
+  });
+
   // Format seconds to mm:ss or hh:mm:ss
   function formatSec(seconds, showHours = false) {
     if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -1449,7 +1476,8 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [isSlicing, setIsSlicing] = useState(false);
     const [sliceProgress, setSliceProgress] = useState("");
     const [lastCreatedClip, setLastCreatedClip] = useState(null);
-    const [sessionClips, setSessionClips] = useState([]);
+    const [currentProjectId, setCurrentProjectId] = useState(null);
+    const [clips, setClips] = useState([]);
     const [useOfficialEmbed, setUseOfficialEmbed] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [recordSec, setRecordSec] = useState(0);
@@ -1533,7 +1561,12 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to slice recorded segment.");
         setLastCreatedClip(data);
-        setSessionClips(prev => [data, ...prev]);
+        if (data.projectId) setCurrentProjectId(data.projectId);
+        if (Array.isArray(data.clips)) {
+          setClips(data.clips);
+        } else if (data.clip) {
+          setClips(prev => [data.clip, ...prev.filter(c => c.id !== data.clip.id)]);
+        }
         toast?.("🎉 Captured " + dur + "s recording! Clip is ready.");
       } catch (err) {
         toast?.(err.message, true);
@@ -1550,17 +1583,23 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       toast?.("Live recording cancelled.");
     };
 
-    // Auto-load if initial URL provided in query
+    // Auto-load if initial URL provided in query or from last session
     useEffect(() => {
-      const hash = window.location.hash;
+      const hash = window.location.hash || "";
       const queryIdx = hash.indexOf("?");
+      let passedUrl = "";
       if (queryIdx !== -1) {
         const params = new URLSearchParams(hash.substring(queryIdx + 1));
-        const passedUrl = params.get("url");
-        if (passedUrl) {
-          setUrlInput(passedUrl);
-          fetchStreamInfo(passedUrl);
-        }
+        passedUrl = params.get("url") || "";
+      }
+      if (!passedUrl) {
+        try {
+          passedUrl = localStorage.getItem("fivestar_last_live_url") || "";
+        } catch {}
+      }
+      if (passedUrl) {
+        setUrlInput(passedUrl);
+        fetchStreamInfo(passedUrl);
       }
     }, []);
 
@@ -1580,6 +1619,10 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         if (!res.ok) throw new Error(data.error || "Failed to inspect live stream.");
 
         setStreamInfo(data);
+        if (data.projectId) setCurrentProjectId(data.projectId);
+        if (Array.isArray(data.clips)) setClips(data.clips);
+        try { localStorage.setItem("fivestar_last_live_url", u); } catch {}
+
         if (data.bufferStatus) setBufferBounds(data.bufferStatus);
         const platform = (data.platform || "youtube").toLowerCase();
         const dur = data.duration || 7200;
@@ -1595,6 +1638,42 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       } finally {
         setLoadingInfo(false);
         setSliceProgress("");
+      }
+    };
+
+    // Live background polling when clips are being transcribed or exported
+    useEffect(() => {
+      if (!currentProjectId) return;
+      const isPending = clips.some(c => c.status === "transcribing" || c.status === "downloading" || c.status === "rendering" || c.status === "queued");
+      if (!isPending) return;
+
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/projects/${currentProjectId}`);
+          if (res.ok) {
+            const p = await res.json();
+            if (Array.isArray(p?.clips)) {
+              setClips(p.clips);
+            }
+          }
+        } catch {}
+      }, 3000);
+
+      return () => clearInterval(interval);
+    }, [currentProjectId, clips]);
+
+    // Delete a clip from the project & update view
+    const handleDeleteClip = async (clipId) => {
+      if (!currentProjectId || !clipId) return;
+      if (!window.confirm("Remove this clip? Its video files are deleted from this computer.")) return;
+      try {
+        const res = await fetch(`/api/projects/${currentProjectId}/clips/${clipId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Failed to delete clip");
+        setClips(prev => prev.filter(c => c.id !== clipId));
+        if (lastCreatedClip?.clipId === clipId) setLastCreatedClip(null);
+        toast?.("Clip removed.");
+      } catch (err) {
+        toast?.(err.message || "Failed to remove clip", true);
       }
     };
 
@@ -1616,6 +1695,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            projectId: currentProjectId,
             url: streamInfo.url,
             masterM3u8: streamInfo.masterM3u8,
             sessionId: bufferBounds?.sessionId,
@@ -1639,7 +1719,12 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         if (!res.ok) throw new Error(data.error || "Failed to slice live stream.");
 
         setLastCreatedClip(data);
-        setSessionClips(prev => [data, ...prev]);
+        if (data.projectId) setCurrentProjectId(data.projectId);
+        if (Array.isArray(data.clips)) {
+          setClips(data.clips);
+        } else if (data.clip) {
+          setClips(prev => [data.clip, ...prev.filter(c => c.id !== data.clip.id)]);
+        }
         toast?.("Live clip created successfully! Ready to edit.");
       } catch (err) {
         toast?.(err.message, true);
@@ -1659,6 +1744,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            projectId: currentProjectId,
             url: streamInfo.url,
             masterM3u8: streamInfo.masterM3u8,
             sessionId: bufferBounds?.sessionId,
@@ -1680,7 +1766,12 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to slice live stream.");
         setLastCreatedClip(data);
-        setSessionClips(prev => [data, ...prev]);
+        if (data.projectId) setCurrentProjectId(data.projectId);
+        if (Array.isArray(data.clips)) {
+          setClips(data.clips);
+        } else if (data.clip) {
+          setClips(prev => [data.clip, ...prev.filter(c => c.id !== data.clip.id)]);
+        }
         toast?.(`🎉 Captured last ${sec}s of live stream!`);
       } catch (err) {
         toast?.(err.message, true);
@@ -2174,31 +2265,136 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
 
-              // Session Clips List
-              sessionClips.length > 0 && jsxs("div", {
-                style: { marginTop: "32px" },
+              // Clips Shelf (Matches VOD Project Interface in Image 3)
+              clips.length > 0 && jsxs("section", {
+                className: "clips-shelf",
+                style: { marginTop: "36px" },
                 children: [
-                  jsx("h3", { style: { fontSize: "16px", fontWeight: 700, margin: "0 0 12px 0" }, children: `Clips Created This Session (${sessionClips.length})` }),
+                  jsxs("div", {
+                    style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" },
+                    children: [
+                      jsx("h2", {
+                        className: "section-title",
+                        style: { margin: 0, fontSize: "20px", fontWeight: 700 },
+                        children: `Clips (${clips.length})`
+                      }),
+                      currentProjectId && jsx("a", {
+                        className: "btn btn-small btn-ghost",
+                        href: router.stream(currentProjectId),
+                        style: { fontSize: "13px", color: "var(--text-dim, #a1a1aa)" },
+                        children: "Open in Stream View →"
+                      })
+                    ]
+                  }),
                   jsx("div", {
-                    className: "recent-live-clips-grid",
-                    children: sessionClips.map((c, idx) => jsxs("div", {
-                      key: c.clipId,
-                      className: "recent-live-clip-item",
-                      children: [
-                        jsxs("div", {
-                          style: { flex: 1, minWidth: 0 },
-                          children: [
-                            jsx("div", { style: { fontWeight: 700, fontSize: "14px", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }, children: `Live Clip #${sessionClips.length - idx}` }),
-                            jsx("div", { style: { fontSize: "12px", color: "#a1a1aa" }, children: `${Math.round(c.clip?.out - c.clip?.in || 60)}s • Ready` })
-                          ]
-                        }),
-                        jsx("a", {
-                          className: "btn btn-small",
-                          href: router.studio(c.projectId, c.clipId),
-                          children: "Edit Clip"
-                        })
-                      ]
-                    }))
+                    className: "clip-grid",
+                    children: clips.map((clip, index) => {
+                      const isReady = clip.status === "ready" || clip.status === "done" || clip.status === "rendering";
+                      const isExported = !!clip.output || clip.status === "done";
+                      const isTranscribing = clip.status === "transcribing";
+                      const isRendering = clip.status === "rendering";
+                      const isError = clip.status === "error";
+
+                      let badgeLabel = "Ready to edit";
+                      if (isExported) badgeLabel = "Exported";
+                      else if (isRendering) badgeLabel = `Exporting ${Math.round((clip.progress || 0) * 100)}%`;
+                      else if (isTranscribing) badgeLabel = "Writing captions…";
+                      else if (isError) badgeLabel = "Error";
+                      else if (clip.status === "queued") badgeLabel = "Queued";
+
+                      const posterSrc = clip.output?.thumb
+                        ? `/files/projects/${currentProjectId}/${clip.output.thumb}`
+                        : clip.poster
+                          ? `/files/projects/${currentProjectId}/${clip.poster}`
+                          : streamInfo?.thumbnail || "";
+
+                      const clipTitle = clip.meta?.title || clip.cover?.text || `Live Clip ${clips.length - index}`;
+
+                      const cardThumbnail = jsxs(Fragment, {
+                        children: [
+                          posterSrc
+                            ? jsx("img", { src: posterSrc, alt: "", style: { width: "100%", height: "100%", objectFit: "cover" } })
+                            : jsx("div", { style: { width: "100%", height: "100%", background: "#18181b", display: "flex", alignItems: "center", justifyContent: "center" }, children: "🎬" }),
+                          jsxs("span", {
+                            className: "clip-shot-state",
+                            children: [
+                              jsx("span", { children: badgeLabel }),
+                              (isRendering || isTranscribing) && jsx("span", {
+                                className: "bar",
+                                children: jsx("i", { style: { width: `${Math.round((clip.progress || 0.5) * 100)}%` } })
+                              })
+                            ]
+                          })
+                        ]
+                      });
+
+                      return jsxs("div", {
+                        key: clip.id,
+                        className: "clip-card",
+                        children: [
+                          isReady
+                            ? jsx("a", {
+                                className: "clip-shot",
+                                href: router.studio(currentProjectId, clip.id),
+                                "aria-label": `Open clip ${index + 1} in editor`,
+                                children: cardThumbnail
+                              })
+                            : jsx("div", { className: "clip-shot", children: cardThumbnail }),
+                          jsx("div", {
+                            className: "clip-title",
+                            style: {
+                              fontSize: "13px",
+                              fontWeight: 600,
+                              lineHeight: "1.3",
+                              maxHeight: "2.6em",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              display: "-webkit-box",
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: "vertical"
+                            },
+                            children: clipTitle
+                          }),
+                          jsxs("div", {
+                            className: "row",
+                            style: { gap: 6, marginTop: 4 },
+                            children: [
+                              isReady && jsxs("a", {
+                                className: "btn btn-small",
+                                href: router.studio(currentProjectId, clip.id),
+                                style: { flex: 1, justifyContent: "center", gap: 6 },
+                                children: [
+                                  jsx(EditIcon, { size: 14 }),
+                                  "Edit"
+                                ]
+                              }),
+                              isExported && jsx("a", {
+                                className: "btn btn-small btn-icon",
+                                href: `/api/projects/${currentProjectId}/clips/${clip.id}/download`,
+                                title: "Download exported MP4",
+                                "aria-label": "Download the MP4",
+                                children: jsx(DownloadIcon, { size: 14 })
+                              }),
+                              !isExported && clip.src?.file && jsx("a", {
+                                className: "btn btn-small btn-icon",
+                                href: `/files/projects/${currentProjectId}/${clip.src.file}`,
+                                download: `${clipTitle.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40)}.mp4`,
+                                title: "Download source clip MP4",
+                                "aria-label": "Download source clip",
+                                children: jsx(DownloadIcon, { size: 14 })
+                              }),
+                              jsx("button", {
+                                className: "btn btn-small btn-icon btn-ghost btn-danger",
+                                onClick: () => handleDeleteClip(clip.id),
+                                title: "Remove this clip",
+                                "aria-label": "Remove this clip",
+                                children: jsx(TrashIcon, { size: 14 })
+                              })
+                            ]
+                          })
+                        ]
+                      });
+                    })
                   })
                 ]
               })
