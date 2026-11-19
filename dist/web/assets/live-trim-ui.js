@@ -1607,7 +1607,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       const isLocallyBuffered = bufferBounds && (trim.start >= bufferBounds.bufferStart - 1.5) && (trim.end <= bufferBounds.bufferEnd + 1.5);
       setSliceProgress(isLocallyBuffered
         ? "Extracting frame-accurate clip from local segment buffer (re-encoding x264+aac)..."
-        : "Fetching live stream segment & transcribing with Whisper (may take 20-40s for HD/1440p)..."
+        : "Fetching historical DVR sequence via YouTube DASH engine & transcribing with Whisper..."
       );
       try {
         const currentHead = liveHead || streamInfo.duration || 7200;

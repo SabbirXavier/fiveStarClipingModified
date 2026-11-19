@@ -64,36 +64,44 @@ async function resolveKickStream(channel) {
   }
 }
 
-// Direct sequence-level DVR slicer for YouTube live streams
-// Solves the rolling 15-minute HLS manifest limit by directly targeting YouTube's 2-4 hour CDN sequence cache
-async function extractYouTubeLiveDvrSegment({
+// High-performance YouTube DASH DVR Engine for exact historical slicing (up to 12-120 hours in the past)
+// Overcomes YouTube CDN's 20-minute rolling HLS purge by targeting Google Video's live DASH sequence cache (&sq=...)
+async function extractYouTubeLiveDashSegment({
   url,
-  clipDuration,
+  start,
+  end,
+  quality,
   rewoundSec,
-  formatSelector,
-  sortSelector,
   targetFile,
   cPath,
   ytDlpRunner,
   ffmpegBin
 }) {
-  console.log(`[YouTube DVR Engine] Slicing exact DVR sequence: ${url} (rewound: ${rewoundSec}s, dur: ${clipDuration}s)...`);
+  console.log(`[YouTube DASH DVR Engine] Slicing exact DVR window: ${url} (start: ${start}s, end: ${end}s, dur: ${end - start}s, quality: ${quality || "best"})...`);
+
+  const qNum = parseInt(quality, 10);
+  let formatSelector;
+  if (!isNaN(qNum) && qNum >= 1440) {
+    formatSelector = `bv*[height<=${qNum}]+ba/bv*[height<=${qNum}]/best`;
+  } else if (!isNaN(qNum) && qNum > 0) {
+    formatSelector = `bv*[height<=${qNum}][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=${qNum}]+ba/best`;
+  } else {
+    // Best: 1080p+ AVC1 or Best available
+    formatSelector = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*+ba/best";
+  }
 
   const gArgs = [
     "--no-warnings",
     "--js-runtimes", "node",
-    "--extractor-args", "youtube:formats=incomplete",
+    "--live-from-start",
     "-g",
-    "-f", formatSelector || "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/best[protocol^=m3u8]"
+    "-f", formatSelector,
+    url
   ];
-  if (sortSelector) {
-    gArgs.push("-S", sortSelector);
-  }
-  gArgs.push(url);
 
-  const gRes = await ytDlpRunner(gArgs, { timeout: 30e3 });
+  const gRes = await ytDlpRunner(gArgs, { timeout: 35e3 });
   if (gRes.code !== 0 || !gRes.stdout.trim()) {
-    throw new Error("Could not resolve YouTube HLS stream URLs: " + (gRes.stderr || "Unknown error"));
+    throw new Error("Could not resolve YouTube DASH stream URLs: " + (gRes.stderr || "Unknown error"));
   }
 
   const streamUrls = gRes.stdout.trim().split(/\r?\n/).map(s => s.trim()).filter(s => s.startsWith("http"));
@@ -104,102 +112,158 @@ async function extractYouTubeLiveDvrSegment({
   const videoUrl = streamUrls[0];
   const audioUrl = streamUrls.length > 1 ? streamUrls[1] : null;
 
-  const vRes = await fetch(videoUrl);
-  if (!vRes.ok) {
-    throw new Error(`Failed to fetch video HLS manifest (status ${vRes.status})`);
-  }
-  const vText = await vRes.text();
-
-  const targetDurMatch = vText.match(/#EXT-X-TARGETDURATION:(\d+)/);
-  const targetDur = targetDurMatch ? parseInt(targetDurMatch[1], 10) : 2;
-  const seqMatch = vText.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/);
-  const mediaSeq = seqMatch ? parseInt(seqMatch[1], 10) : 0;
-
-  const allSeqs = [...vText.matchAll(/\/sq\/(\d+)\//g)].map(m => parseInt(m[1], 10));
-  const headSeq = allSeqs.length > 0 ? Math.max(...allSeqs) : (mediaSeq + 450);
-
-  const segUrlMatch = vText.match(/https:\/\/[^\s\n]+\/sq\/(\d+)\/[^\s\n]+/);
-  if (!segUrlMatch) {
-    throw new Error("Could not parse YouTube segment URL pattern from manifest");
-  }
-  const sampleUrl = segUrlMatch[0];
-
-  const offsetSegments = Math.round(rewoundSec / targetDur);
-  const targetStartSeq = Math.max(0, headSeq - offsetSegments);
-  const numSegments = Math.max(2, Math.ceil(clipDuration / targetDur));
-
-  console.log(`[YouTube DVR Engine] headSeq: ${headSeq}, rewound: ${rewoundSec}s -> targetStartSeq: ${targetStartSeq}, count: ${numSegments}`);
-
-  function buildM3U8(sampleSegUrl, startS, count, dur) {
-    let m = `#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:${dur}\n#EXT-X-MEDIA-SEQUENCE:${startS}\n`;
-    for (let i = 0; i < count; i++) {
-      const s = startS + i;
-      const segUrl = sampleSegUrl.replace(/\/sq\/\d+\//, `/sq/${s}/`);
-      m += `#EXTINF:${dur}.000,\n${segUrl}\n`;
-    }
-    m += `#EXT-X-ENDLIST\n`;
-    return m;
+  // Query live head sequence and reference clock
+  const headRes = await fetch(videoUrl, { method: "HEAD" });
+  if (!headRes.ok) {
+    throw new Error(`Failed to query stream head (HTTP ${headRes.status})`);
   }
 
-  const vTempM3u8 = path.join(cPath, "custom_v.m3u8");
-  fs.writeFileSync(vTempM3u8, buildM3U8(sampleUrl, targetStartSeq, numSegments, targetDur));
+  const headSeq = parseInt(headRes.headers.get("x-head-seqnum"), 10);
+  const headTimeSec = parseFloat(headRes.headers.get("x-head-time-sec") || (Number(headRes.headers.get("x-head-time-millis")) / 1000)) || 0;
+  const targetDur = (headTimeSec > 0 && headSeq > 0) ? (headTimeSec / headSeq) : 2.0;
+  const isWebM = videoUrl.includes("mime=video%2Fwebm") || (headRes.headers.get("content-type") || "").includes("webm");
 
-  const ffArgs = [
-    "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
-    "-allowed_extensions", "ALL",
-    "-i", vTempM3u8
-  ];
+  console.log(`[YouTube DASH DVR Engine] headSeq: ${headSeq}, headTime: ${headTimeSec.toFixed(1)}s, targetDur: ${targetDur.toFixed(4)}s, isWebM: ${isWebM}`);
 
-  let aTempM3u8 = null;
-  if (audioUrl) {
-    try {
-      const aRes = await fetch(audioUrl);
-      if (aRes.ok) {
-        const aText = await aRes.text();
-        const aSegMatch = aText.match(/https:\/\/[^\s\n]+\/sq\/(\d+)\/[^\s\n]+/);
-        if (aSegMatch) {
-          aTempM3u8 = path.join(cPath, "custom_a.m3u8");
-          fs.writeFileSync(aTempM3u8, buildM3U8(aSegMatch[0], targetStartSeq, numSegments, targetDur));
-          ffArgs.push(
-            "-protocol_whitelist", "file,http,https,tcp,tls,crypto,data",
-            "-allowed_extensions", "ALL",
-            "-i", aTempM3u8
-          );
-        }
-      }
-    } catch (aErr) {
-      console.warn("[YouTube DVR Engine] Audio manifest notice:", aErr.message);
-    }
+  let startSeq;
+  let endSeq;
+  if (start < 0 || end <= 0) {
+    startSeq = Math.max(0, headSeq - Math.ceil(Math.abs(start) / targetDur));
+    endSeq = Math.max(startSeq + 1, headSeq - Math.floor(Math.abs(end) / targetDur));
+  } else {
+    startSeq = Math.max(0, Math.floor(start / targetDur));
+    endSeq = Math.max(startSeq + 1, Math.ceil(end / targetDur));
+  }
+  if (endSeq > headSeq) endSeq = headSeq;
+  const count = Math.max(1, endSeq - startSeq);
+
+  console.log(`[YouTube DASH DVR Engine] Slicing sequences [${startSeq} .. ${endSeq - 1}] (${count} segments, target: ${targetFile})...`);
+
+  // Parallel fetch segment chunks (with 20s timeout per chunk)
+  const fetchTasks = [];
+  for (let s = startSeq; s < endSeq; s++) {
+    const vTask = fetch(videoUrl + "&sq=" + s, { signal: AbortSignal.timeout(20e3) }).then(async r => {
+      if (!r.ok) throw new Error(`Video segment ${s} returned HTTP ${r.status}`);
+      return { seq: s, buf: Buffer.from(await r.arrayBuffer()) };
+    });
+    const aTask = audioUrl ? fetch(audioUrl + "&sq=" + s, { signal: AbortSignal.timeout(20e3) }).then(async r => {
+      if (!r.ok) return { seq: s, buf: null };
+      return { seq: s, buf: Buffer.from(await r.arrayBuffer()) };
+    }) : Promise.resolve({ seq: s, buf: null });
+    fetchTasks.push(Promise.all([vTask, aTask]));
   }
 
-  ffArgs.push(
-    "-c", "copy",
-    "-movflags", "+faststart",
-    "-y",
-    targetFile
-  );
+  const fetched = await Promise.all(fetchTasks);
+  console.log(`[YouTube DASH DVR Engine] Fetched all ${count} segment pairs in parallel!`);
 
+  const segDir = path.join(cPath, `dash_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  fs.mkdirSync(segDir, { recursive: true });
+
+  const relativeStart = Math.max(0, start - (startSeq * targetDur));
+  const clipDuration = Math.max(1, end - start);
   const ffBin = ffmpegBin || "ffmpeg";
-  const ffProc = spawn(ffBin, ffArgs);
-  let ffErr = "";
-  ffProc.stderr.on("data", d => ffErr += d);
 
   try {
-    await new Promise((resolve, reject) => {
-      ffProc.on("close", code => {
-        if (code === 0) resolve();
-        else reject(new Error(`FFmpeg exited with code ${code}: ${ffErr.slice(-300)}`));
-      });
-      ffProc.on("error", reject);
-    });
-  } finally {
-    try { if (fs.existsSync(vTempM3u8)) fs.unlinkSync(vTempM3u8); } catch {}
-    try { if (aTempM3u8 && fs.existsSync(aTempM3u8)) fs.unlinkSync(aTempM3u8); } catch {}
-  }
+    if (isWebM) {
+      // For WebM / VP9 (1440p), concatenate chunks directly as byte stream
+      const vCombined = path.join(segDir, "v_combined.webm");
+      fs.writeFileSync(vCombined, Buffer.concat(fetched.map(([v]) => v.buf).filter(Boolean)));
 
-  if (fs.existsSync(targetFile) && fs.statSync(targetFile).size >= 5000) {
-    console.log(`[YouTube DVR Engine] Exact DVR sequence slice succeeded (${fs.statSync(targetFile).size} bytes)`);
-    return targetFile;
+      const aBuffers = fetched.map(([, a]) => a.buf).filter(Boolean);
+      let aCombined = null;
+      if (aBuffers.length > 0) {
+        aCombined = path.join(segDir, "a_combined.webm");
+        fs.writeFileSync(aCombined, Buffer.concat(aBuffers));
+      }
+
+      const ffArgs = [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-i", vCombined
+      ];
+      if (aCombined) {
+        ffArgs.push("-i", aCombined);
+      }
+      ffArgs.push(
+        "-ss", relativeStart.toFixed(3),
+        "-t", clipDuration.toFixed(3),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        targetFile
+      );
+
+      const ffProc = spawn(ffBin, ffArgs, { cwd: segDir });
+      let ffErr = "";
+      ffProc.stderr.on("data", d => ffErr += d);
+      await new Promise((resolve, reject) => {
+        ffProc.on("close", code => code === 0 ? resolve() : reject(new Error(`FFmpeg exited with code ${code}: ${ffErr.slice(-300)}`)));
+        ffProc.on("error", reject);
+      });
+    } else {
+      // For MP4 (AVC1 / AAC), remux segments to .ts in parallel and concat
+      const remuxTasks = [];
+      const vTsList = [];
+      const aTsList = [];
+
+      for (const [v, a] of fetched) {
+        const vMp4 = path.join(segDir, `v_${v.seq}.mp4`);
+        const vTs = path.join(segDir, `v_${v.seq}.ts`);
+        fs.writeFileSync(vMp4, v.buf);
+        vTsList.push(`v_${v.seq}.ts`);
+        remuxTasks.push(new Promise((resolve, reject) => {
+          const p = spawn(ffBin, ["-hide_banner", "-loglevel", "error", "-y", "-i", vMp4, "-c", "copy", vTs]);
+          p.on("close", code => code === 0 ? resolve() : reject(new Error(`TS remux failed for v_${v.seq}`)));
+          p.on("error", reject);
+        }));
+
+        if (a && a.buf && a.buf.length > 0) {
+          const aMp4 = path.join(segDir, `a_${a.seq}.mp4`);
+          const aTs = path.join(segDir, `a_${a.seq}.ts`);
+          fs.writeFileSync(aMp4, a.buf);
+          aTsList.push(`a_${a.seq}.ts`);
+          remuxTasks.push(new Promise((resolve, reject) => {
+            const p = spawn(ffBin, ["-hide_banner", "-loglevel", "error", "-y", "-i", aMp4, "-c", "copy", aTs]);
+            p.on("close", code => code === 0 ? resolve() : reject(new Error(`TS remux failed for a_${a.seq}`)));
+            p.on("error", reject);
+          }));
+        }
+      }
+
+      await Promise.all(remuxTasks);
+
+      const ffArgs = [
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-i", `concat:${vTsList.join("|")}`
+      ];
+      if (aTsList.length > 0) {
+        ffArgs.push("-i", `concat:${aTsList.join("|")}`);
+      }
+      ffArgs.push(
+        "-ss", relativeStart.toFixed(3),
+        "-t", clipDuration.toFixed(3),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        targetFile
+      );
+
+      const ffProc = spawn(ffBin, ffArgs, { cwd: segDir });
+      let ffErr = "";
+      ffProc.stderr.on("data", d => ffErr += d);
+      await new Promise((resolve, reject) => {
+        ffProc.on("close", code => code === 0 ? resolve() : reject(new Error(`FFmpeg exited with code ${code}: ${ffErr.slice(-300)}`)));
+        ffProc.on("error", reject);
+      });
+    }
+
+    if (fs.existsSync(targetFile) && fs.statSync(targetFile).size >= 5000) {
+      console.log(`[YouTube DASH DVR Engine] Successfully produced frame-accurate clip (${fs.statSync(targetFile).size} bytes)`);
+      return targetFile;
+    }
+  } finally {
+    try {
+      fs.rmSync(segDir, { recursive: true, force: true });
+    } catch {}
   }
   return null;
 }
@@ -581,6 +645,7 @@ export function registerLiveRoutes(app, deps) {
       const title = String(req.body?.title ?? "").trim() || "Live Clip";
       const channel = String(req.body?.channel ?? "").trim() || "Live Streamer";
       const videoId = String(req.body?.videoId ?? "").trim() || "live";
+      const streamDuration = Number(req.body?.streamDuration) || 0;
       const platform = detectPlatform(url);
 
       if (!url) {
@@ -707,9 +772,9 @@ export function registerLiveRoutes(app, deps) {
         }
       }
 
-      // 2. YouTube Live DVR sequence engine:
-      // Bypasses the rolling 15-minute manifest limit of yt-dlp/ffmpeg and grabs the exact
-      // historical sequence chunks from YouTube's 2-4 hour CDN buffer in 3-5 seconds.
+      // 2. YouTube Live DASH DVR Engine:
+      // Bypasses the rolling 15-minute HLS limit and queries Google Video's live DASH sequence cache (&sq=...)
+      // Enables exact historical slicing for any moment across the entire live broadcast (even 5-10+ hours ago).
       if (!actualSrc && platform === "youtube") {
         try {
           let rewoundSec = null;
@@ -723,13 +788,13 @@ export function registerLiveRoutes(app, deps) {
             rewoundSec = clipDuration;
           }
 
-          console.log(`[Live Clipper] Attempting YouTube sequence DVR slice (rewoundSec: ${rewoundSec}, clipDur: ${clipDuration}s)...`);
-          const seqResult = await extractYouTubeLiveDvrSegment({
+          console.log(`[Live Clipper] Attempting YouTube DASH DVR slice (start: ${start}s, end: ${end}s, rewoundSec: ${rewoundSec}, clipDur: ${clipDuration}s)...`);
+          const seqResult = await extractYouTubeLiveDashSegment({
             url: targetDownloadUrl,
-            clipDuration,
+            start,
+            end,
+            quality: reqQuality,
             rewoundSec: rewoundSec ?? clipDuration,
-            formatSelector,
-            sortSelector,
             targetFile: targetSrcFile,
             cPath,
             ytDlpRunner,
@@ -738,10 +803,10 @@ export function registerLiveRoutes(app, deps) {
 
           if (seqResult && fs.existsSync(targetSrcFile) && fs.statSync(targetSrcFile).size >= 5000) {
             actualSrc = targetSrcFile;
-            console.log(`[Live Clipper] YouTube sequence DVR slice succeeded: ${actualSrc} (${fs.statSync(actualSrc).size} bytes)`);
+            console.log(`[Live Clipper] YouTube DASH DVR slice succeeded: ${actualSrc} (${fs.statSync(actualSrc).size} bytes)`);
           }
         } catch (seqErr) {
-          console.warn("[Live Clipper] YouTube sequence DVR slice notice:", seqErr.message);
+          console.warn("[Live Clipper] YouTube DASH DVR slice notice:", seqErr.message);
         }
       }
 
@@ -1042,6 +1107,7 @@ export function registerLiveRoutes(app, deps) {
       const title = String(req.body?.title ?? "").trim() || "Live Stream Window";
       const channel = String(req.body?.channel ?? "").trim() || "Live Streamer";
       const videoId = String(req.body?.videoId ?? "").trim() || "live";
+      const streamDuration = Number(req.body?.streamDuration) || 0;
       const platform = detectPlatform(url);
 
       if (!url) return res.status(400).json({ error: "Stream URL is required." });
