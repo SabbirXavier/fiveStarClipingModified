@@ -6,4 +6,4 @@ ${e}`);function f(e,t,n={}){return M(e,t,{encoding:"utf8",maxBuffer:64*1024*1024
 All set. Start the app with:  npm start   \u2192 then open http://localhost:5177
 `:`
 Setup finished with ${d} thing(s) to fix above.
-`);process.exit(d===0?0:1);
+`);try{d===0&&o.writeFileSync(i.join(g,".setup_done"),"setup_completed\n","utf8")}catch{}process.exit(d===0?0:1);

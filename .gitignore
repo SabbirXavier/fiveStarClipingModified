@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Local setup markers
+.setup_done
+
 # Local tools & Python virtual environments
 .tools/
 

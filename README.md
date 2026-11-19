@@ -32,16 +32,20 @@ The build has been checked on macOS; other operating systems need their own veri
 
 ## First run
 
-Open a terminal in this folder, where `package.json` is located:
+On Windows, simply double-click:
+```text
+start.bat
+```
 
+Or open a terminal in this folder and run:
 ```bash
-npm ci --omit=dev
-npm run setup
 npm start
 ```
 
-Open **http://localhost:5177**. Keep the terminal running. Press **Ctrl+C** to stop.
-Future runs need only `npm start`. No Vite, TypeScript, tsx, or separate frontend command is needed.
+Fivestar automatically detects first-time setup, installs production dependencies (`npm ci --omit=dev`), and sets up tools and assets (`npm run setup`). On subsequent runs, setup is skipped automatically and the server starts immediately.
+
+Open **http://localhost:5177**. Keep the terminal running. Press **Ctrl+C** (or run `stop.bat` on Windows) to stop.
+Future runs need only `npm start` or double-clicking `start.bat`. No Vite, TypeScript, tsx, or separate frontend command is needed.
 Dependencies with native components install for this computer; do not copy another computer's
 `node_modules` or `.tools/venv` folders.
 

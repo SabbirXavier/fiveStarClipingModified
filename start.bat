@@ -15,6 +15,58 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
+where npm >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] npm is not found on your PATH.
+    echo Please ensure npm is installed and added to your PATH.
+    pause
+    exit /b 1
+)
+
+REM Check if first-time setup is needed
+if not exist "node_modules\express" goto DO_SETUP
+if not exist ".setup_done" goto DO_SETUP
+goto CHECK_RUNNING
+
+:DO_SETUP
+echo.
+echo ========================================================
+echo   First-time setup detected. Setting up Fivestar...
+echo   This will only take a couple of minutes on first run.
+echo ========================================================
+echo.
+echo [1/2] Installing dependencies (npm ci --omit=dev)...
+call npm ci --omit=dev
+if errorlevel 1 (
+    echo.
+    echo [INFO] npm ci failed or package-lock mismatch. Trying npm install --omit=dev...
+    call npm install --omit=dev
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Failed to install npm dependencies.
+        echo Please check your internet connection and try running: npm install --omit=dev
+        pause
+        exit /b 1
+    )
+)
+
+echo.
+echo [2/2] Setting up tools, fonts and assets (npm run setup)...
+call npm run setup
+if errorlevel 1 (
+    echo.
+    echo [WARNING] Setup finished with warnings, but will attempt to start.
+)
+
+REM Mark setup as complete so this step is skipped on future runs
+echo setup_completed > .setup_done
+echo.
+echo ========================================================
+echo   Setup complete! Launching Fivestar...
+echo ========================================================
+echo.
+
+:CHECK_RUNNING
 REM Check if server is already running on port 5177
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$c = Get-NetTCPConnection -LocalPort 5177 -State Listen -ErrorAction SilentlyContinue; if ($c) { exit 10 } else { exit 0 }"
 if %ERRORLEVEL% equ 10 (
@@ -23,7 +75,7 @@ if %ERRORLEVEL% equ 10 (
 )
 
 echo Launching Fivestar server...
-start "Fivestar Server" cmd /k "cd /d "%~dp0" && title Fivestar Server && node dist\server.mjs"
+start "Fivestar Server" cmd /k "cd /d "%~dp0" && title Fivestar Server && node dist\start.mjs"
 
 echo Waiting for server to become ready...
 for /l %%i in (1,1,25) do (

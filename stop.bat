@@ -13,8 +13,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$conns = Get-NetTCPConne
 REM 2. Stop window titled Fivestar Server
 taskkill /fi "WINDOWTITLE eq Fivestar Server*" /f /t >nul 2>&1
 
-REM 3. Stop any node process running server.mjs
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*dist/server.mjs*' -or $_.CommandLine -like '*dist\server.mjs*' }; foreach ($p in $procs) { Write-Host ('Stopping server process PID ' + $p.ProcessId); Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"
+REM 3. Stop any node process running server.mjs or start.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*dist/server.mjs*' -or $_.CommandLine -like '*dist\server.mjs*' -or $_.CommandLine -like '*dist/start.mjs*' -or $_.CommandLine -like '*dist\start.mjs*' }; foreach ($p in $procs) { Write-Host ('Stopping server process PID ' + $p.ProcessId); Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }"
 
 echo.
 echo ========================================================
