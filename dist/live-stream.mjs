@@ -161,7 +161,7 @@ export function registerLiveRoutes(app, deps) {
       // Also get direct stream format url if available
       let streamUrl = null;
       try {
-        const flags = platform === "youtube" ? ["-g", "--live-from-start", url] : ["-g", url];
+        const flags = ["-g", url];
         const urlRes = await ytDlpRunner(flags, { timeout: 20e3 });
         if (urlRes.code === 0 && urlRes.stdout.trim()) {
           streamUrl = urlRes.stdout.trim().split(/\r?\n/)[0].trim();
@@ -330,14 +330,18 @@ export function registerLiveRoutes(app, deps) {
 
       console.log(`[Live Clipper] Slicing stream: ${url} (target: ${targetDownloadUrl.slice(0, 70)}...) from ${start.toFixed(2)}s to ${end.toFixed(2)}s into ${targetSrcFile}...`);
 
-      // Execute yt-dlp slice (use --live-from-start for YouTube DVR, direct timestamp download-sections for Kick DVR)
+      // Execute yt-dlp slice (HLS stream slicing with FFmpeg locator)
+      const ffmpegBin = getBinPath("ffmpeg");
       const ytArgs = [
         "--no-warnings",
         "--force-overwrites"
       ];
+      if (ffmpegBin) {
+        ytArgs.push("--ffmpeg-location", path.dirname(ffmpegBin));
+      }
+
       let sectionArg;
       if (platform === "youtube") {
-        ytArgs.push("--live-from-start");
         sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
       } else if (platform === "kick" && targetDownloadUrl.includes("stream.kick.com")) {
         // Kick full DVR master playlist: slice exact timestamps from the recorded stream!
@@ -349,7 +353,7 @@ export function registerLiveRoutes(app, deps) {
       }
       ytArgs.push(
         "--download-sections", sectionArg,
-        "-f", "bv*+ba/b",
+        "-f", "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/bv*+ba/b",
         "-S", "res:1080,vcodec:h264,acodec:aac",
         "--merge-output-format", "mp4",
         "-o", path.join(cPath, "src.%(ext)s"),
@@ -372,6 +376,42 @@ export function registerLiveRoutes(app, deps) {
         }
       }
 
+      // If yt-dlp did not produce a valid file, run direct FFmpeg fallback on stream URLs
+      if (!actualSrc && ffmpegBin) {
+        console.log(`[Live Clipper] yt-dlp slice did not produce file, trying direct FFmpeg HLS slice fallback...`);
+        try {
+          const urlRes = await ytDlpRunner(["-g", targetDownloadUrl], { timeout: 25e3 });
+          if (urlRes.code === 0 && urlRes.stdout.trim()) {
+            const streamUrls = urlRes.stdout.trim().split(/\r?\n/).filter(l => l.startsWith("http"));
+            const duration = Math.max(3, end - start);
+            if (streamUrls.length >= 2) {
+              const ffArgs = [
+                "-hide_banner", "-loglevel", "error", "-y",
+                "-ss", String(start), "-t", String(duration), "-i", streamUrls[0],
+                "-ss", String(start), "-t", String(duration), "-i", streamUrls[1],
+                "-c", "copy", "-movflags", "+faststart", targetSrcFile
+              ];
+              const ffProc = spawn(ffmpegBin, ffArgs);
+              await new Promise(r => ffProc.on("close", r));
+            } else if (streamUrls.length === 1) {
+              const ffArgs = [
+                "-hide_banner", "-loglevel", "error", "-y",
+                "-ss", String(start), "-t", String(duration), "-i", streamUrls[0],
+                "-c", "copy", "-movflags", "+faststart", targetSrcFile
+              ];
+              const ffProc = spawn(ffmpegBin, ffArgs);
+              await new Promise(r => ffProc.on("close", r));
+            }
+            if (fs.existsSync(targetSrcFile) && fs.statSync(targetSrcFile).size >= 5000) {
+              actualSrc = targetSrcFile;
+              console.log(`[Live Clipper] Direct FFmpeg fallback succeeded (${fs.statSync(targetSrcFile).size} bytes)`);
+            }
+          }
+        } catch (ffErr) {
+          console.warn("[Live Clipper] FFmpeg fallback error:", ffErr.message);
+        }
+      }
+
       if (!actualSrc) {
         const errorMsg = sliceResult.stderr || "Could not download that portion of the live stream.";
         return res.status(500).json({ error: `Slice failed: ${errorMsg}` });
@@ -380,7 +420,6 @@ export function registerLiveRoutes(app, deps) {
       // If output is not mp4, remux
       if (!actualSrc.endsWith(".mp4")) {
         const remuxed = path.join(cPath, "src_remux.mp4");
-        const ffmpegBin = getBinPath("ffmpeg");
         if (ffmpegBin) {
           const remux = spawn(ffmpegBin, ["-y", "-i", actualSrc, "-c", "copy", remuxed]);
           await new Promise(r => remux.on("close", r));
@@ -409,7 +448,6 @@ export function registerLiveRoutes(app, deps) {
 
       // Generate poster thumbnail at 0.5s or 1s
       const posterFile = path.join(cPath, "poster.jpg");
-      const ffmpegBin = getBinPath("ffmpeg");
       if (ffmpegBin) {
         try {
           const posterProc = spawn(ffmpegBin, [
