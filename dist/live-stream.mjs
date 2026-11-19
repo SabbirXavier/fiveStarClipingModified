@@ -387,8 +387,43 @@ export function registerLiveRoutes(app, deps) {
       }
 
       let sectionArg;
+      let trimLabel = `Live cut at ${formatTime(start)}`;
+      let trimDetail = `Trimmed from live stream (${formatTime(start)} - ${formatTime(end)})`;
+
       if (platform === "youtube") {
-        sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
+        const isFromLiveHead = req.body?.isLiveHead === true || typeof req.body?.fromLive === "number";
+        if (isFromLiveHead) {
+          const dur = Math.max(3, Math.min(180, Number(req.body?.fromLive) || (end - start) || 60));
+          sectionArg = `*-${dur.toFixed(1)}--1.0`;
+          trimLabel = `Live instant cut (last ${Math.round(dur)}s)`;
+          trimDetail = `Captured live stream moment (last ${Math.round(dur)}s before live)`;
+          console.log(`[Live Clipper] Slicing YouTube live head: last ${dur}s (section: ${sectionArg})`);
+        } else if (start < 0 || end <= 0) {
+          const s = Math.max(-880, start);
+          const e = Math.min(-1, end);
+          sectionArg = `*${s.toFixed(1)}-${e.toFixed(1)}`;
+          trimLabel = `Live DVR cut (${Math.abs(Math.round(s))}s to ${Math.abs(Math.round(e))}s ago)`;
+          trimDetail = `Trimmed live DVR buffer (${Math.abs(Math.round(s))}s to ${Math.abs(Math.round(e))}s before live)`;
+          console.log(`[Live Clipper] Slicing YouTube negative offset: ${sectionArg}`);
+        } else {
+          const streamDuration = Number(req.body?.streamDuration) || 0;
+          if (streamDuration > 0 && end <= streamDuration + 60) {
+            const dur = Math.max(3, Math.min(180, end - start));
+            let offsetEnd = Math.min(-1, end - streamDuration);
+            let offsetStart = offsetEnd - dur;
+            if (offsetStart < -880) {
+              offsetStart = -880;
+              offsetEnd = offsetStart + dur;
+            }
+            sectionArg = `*${offsetStart.toFixed(1)}-${offsetEnd.toFixed(1)}`;
+            trimLabel = `Live DVR cut (${Math.abs(Math.round(offsetStart))}s to ${Math.abs(Math.round(offsetEnd))}s ago)`;
+            trimDetail = `Trimmed live DVR buffer (${Math.abs(Math.round(offsetStart))}s to ${Math.abs(Math.round(offsetEnd))}s before live)`;
+            console.log(`[Live Clipper] Slicing YouTube scrubbed DVR offset: ${sectionArg} (scrub: ${formatTime(start)} - ${formatTime(end)}, liveHead: ${formatTime(streamDuration)})`);
+          } else {
+            sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
+            console.log(`[Live Clipper] Slicing YouTube standard: ${sectionArg}`);
+          }
+        }
       } else if (platform === "kick" && targetDownloadUrl.includes("stream.kick.com")) {
         // Kick full DVR master playlist: slice exact timestamps from the recorded stream!
         sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
@@ -644,7 +679,7 @@ export function registerLiveRoutes(app, deps) {
         status: "ready",
         steps: [],
         signals: [
-          { key: "manual", available: true, detail: `Trimmed from live stream (${formatTime(start)} - ${formatTime(end)})` }
+          { key: "manual", available: true, detail: trimDetail }
         ],
         moments: [
           {
@@ -654,7 +689,7 @@ export function registerLiveRoutes(app, deps) {
             end: mediaInfo.duration || clipDuration,
             heat: 99,
             stars: 5,
-            reasons: [{ signal: "manual", label: `Live cut at ${formatTime(start)}` }],
+            reasons: [{ signal: "manual", label: trimLabel }],
             chat: []
           }
         ],

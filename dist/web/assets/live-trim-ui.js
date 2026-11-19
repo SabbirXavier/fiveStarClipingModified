@@ -1288,13 +1288,40 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [selectedQuality, setSelectedQuality] = useState("best");
     const [selectedLang, setSelectedLang] = useState("hi");
     const [translateToEn, setTranslateToEn] = useState(false);
+    const [isLiveSync, setIsLiveSync] = useState(true);
+    const [liveHead, setLiveHead] = useState(0);
 
     useEffect(() => {
       if (streamInfo?.title) {
         const isIndian = /india|hindi|live stream india|[\u0900-\u097F]/i.test(streamInfo.title);
         if (isIndian) setSelectedLang("hi");
       }
+      if (streamInfo?.duration) {
+        setLiveHead(streamInfo.duration);
+      }
     }, [streamInfo]);
+
+    // Live Edge Real-Time Ticker: continuously tracks broadcast progress
+    useEffect(() => {
+      if (!streamInfo?.isLive) return;
+      const interval = setInterval(() => {
+        setLiveHead(prev => {
+          const nextHead = (prev || streamInfo?.duration || 7200) + 1;
+          if (isLiveSync) {
+            setTrim(t => {
+              const dur = Math.max(5, Math.min(180, t.duration || (t.end - t.start) || 60));
+              return {
+                start: Math.max(0, nextHead - dur),
+                end: nextHead,
+                duration: dur
+              };
+            });
+          }
+          return nextHead;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }, [streamInfo?.isLive, isLiveSync]);
     const [isSlicing, setIsSlicing] = useState(false);
     const [sliceProgress, setSliceProgress] = useState("");
     const [lastCreatedClip, setLastCreatedClip] = useState(null);
@@ -1429,9 +1456,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         setStreamInfo(data);
         const platform = (data.platform || "youtube").toLowerCase();
         const dur = data.duration || 7200;
-        const initialStart = platform === "youtube" ? Math.max(0, dur - 60) : (platform === "kick" ? Math.max(0, dur - 60) : 0);
+        setLiveHead(dur);
+        setIsLiveSync(true);
+        const initialStart = Math.max(0, dur - 60);
         const initialEnd = dur;
-        const initialDuration = Math.min(60, Math.max(5, initialEnd - initialStart));
+        const initialDuration = 60;
         setTrim({ start: initialStart, end: initialEnd, duration: initialDuration });
         toast?.(`Loaded stream: ${data.title}`);
       } catch (err) {
@@ -1445,21 +1474,23 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     // Stage 2: Instant Slice & Transcribe Mode
     const handleCreateLiveClip = async () => {
       if (!streamInfo) return;
-      if (trim.duration < 3 || trim.duration > 180) {
-        return toast?.("Clips must be between 3 seconds and 3 minutes.", true);
-      }
+      const dur = Math.max(3, Math.min(180, trim.duration || (trim.end - trim.start) || 60));
 
       setIsSlicing(true);
       setSliceProgress("Extracting live segment with FFmpeg & transcribing with Whisper (approx 5-8s)...");
       try {
+        const currentHead = liveHead || streamInfo.duration || 7200;
         const res = await fetch("/api/live/slice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url: streamInfo.url,
             masterM3u8: streamInfo.masterM3u8,
+            isLiveHead: isLiveSync,
+            fromLive: isLiveSync ? dur : (currentHead > 0 && trim.end < currentHead ? Math.max(1, currentHead - trim.end) : undefined),
             start: trim.start,
             end: trim.end,
+            streamDuration: currentHead,
             title: streamInfo.title,
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
@@ -1482,6 +1513,53 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         setIsSlicing(false);
         setSliceProgress("");
       }
+    };
+
+    const handleQuickClip = async (sec) => {
+      if (!streamInfo) return;
+      setIsSlicing(true);
+      setSliceProgress(`Extracting last ${sec}s from live stream & transcribing with Whisper...`);
+      try {
+        const currentHead = liveHead || streamInfo.duration || 7200;
+        const res = await fetch("/api/live/slice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: streamInfo.url,
+            masterM3u8: streamInfo.masterM3u8,
+            isLiveHead: true,
+            fromLive: sec,
+            start: Math.max(0, currentHead - sec),
+            end: currentHead,
+            streamDuration: currentHead,
+            title: streamInfo.title,
+            channel: streamInfo.channel,
+            videoId: streamInfo.videoId,
+            thumbnail: streamInfo.thumbnail,
+            quality: selectedQuality,
+            language: selectedLang,
+            translate: translateToEn
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to slice live stream.");
+        setLastCreatedClip(data);
+        setSessionClips(prev => [data, ...prev]);
+        toast?.(`🎉 Captured last ${sec}s of live stream!`);
+      } catch (err) {
+        toast?.(err.message, true);
+      } finally {
+        setIsSlicing(false);
+        setSliceProgress("");
+      }
+    };
+
+    const handleSnapToLive = () => {
+      setIsLiveSync(true);
+      const head = liveHead || streamInfo?.duration || 7200;
+      const dur = Math.max(5, Math.min(180, trim.duration || 60));
+      setTrim({ start: Math.max(0, head - dur), end: head, duration: dur });
+      toast?.("🔴 Snapped back to live edge!");
     };
 
     // Stage 4: AI Highlights in Window Mode
@@ -1667,17 +1745,94 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
 
               // Universal Trim Slider for Live DVR
               jsx(UniversalTrimSlider, {
-                duration: streamInfo.duration || 7200,
+                duration: liveHead || streamInfo.duration || 7200,
                 startTime: trim.start,
                 endTime: trim.end,
                 isLive: true,
-                addLabel: isSlicing ? "Processing..." : "⚡ Create Clip Now",
-                onTrimChange: (newTrim) => setTrim(newTrim),
+                addLabel: isSlicing ? "Processing..." : (isLiveSync ? "⚡ Create Clip Now (Live)" : "⚡ Create Clip from Selection"),
+                onTrimChange: (newTrim) => {
+                  setTrim(newTrim);
+                  const head = liveHead || streamInfo.duration || 7200;
+                  if (head - newTrim.end > 4) {
+                    setIsLiveSync(false);
+                  }
+                },
                 onAddMoment: handleCreateLiveClip,
-                onSyncToLive: handleSyncLiveHead,
+                onSyncToLive: handleSnapToLive,
                 extraAction: jsxs("div", {
                   style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
                   children: [
+                    // Live Sync Status Badge
+                    jsxs("div", {
+                      style: {
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: isLiveSync ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                        border: `1px solid ${isLiveSync ? "rgba(16, 185, 129, 0.4)" : "rgba(245, 158, 11, 0.4)"}`,
+                        borderRadius: "8px",
+                        padding: "3px 10px",
+                        color: isLiveSync ? "#86efac" : "#fde047",
+                        fontSize: "12px",
+                        fontWeight: 700
+                      },
+                      children: [
+                        jsx("span", {
+                          children: isLiveSync ? "🟢 LIVE SYNC (Active)" : `⏸️ REWOUND (-${Math.round(Math.max(0, (liveHead || 7200) - trim.end))}s)`
+                        }),
+                        !isLiveSync && jsx("button", {
+                          type: "button",
+                          onClick: handleSnapToLive,
+                          style: {
+                            background: "#ef4444",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: "4px",
+                            padding: "1px 6px",
+                            fontSize: "10.5px",
+                            fontWeight: 800,
+                            cursor: "pointer"
+                          },
+                          title: "Jump back to current live edge",
+                          children: "Snap to Live"
+                        })
+                      ]
+                    }),
+                    // Quick Clip Pills: 30s, 60s, 90s, 120s
+                    jsxs("div", {
+                      style: {
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        background: "rgba(24, 17, 38, 0.95)",
+                        border: "1px solid #4a3869",
+                        borderRadius: "8px",
+                        padding: "3px 8px"
+                      },
+                      children: [
+                        jsx("span", {
+                          style: { fontSize: "12px", color: "#a1a1aa", fontWeight: 600, marginRight: "2px" },
+                          children: "⚡ Quick Clip:"
+                        }),
+                        [30, 60, 90, 120].map(s => jsx("button", {
+                          key: `quick_${s}`,
+                          type: "button",
+                          style: {
+                            padding: "2px 7px",
+                            fontSize: "11.5px",
+                            fontWeight: 700,
+                            borderRadius: "5px",
+                            border: "1px solid #635086",
+                            background: s === 60 ? "rgba(255, 209, 102, 0.2)" : "rgba(255,255,255,0.06)",
+                            color: s === 60 ? "#ffd166" : "#e2e8f0",
+                            cursor: "pointer"
+                          },
+                          onClick: () => handleQuickClip(s),
+                          title: `Instantly clip the last ${s} seconds from live broadcast`,
+                          children: `${s}s`
+                        }))
+                      ]
+                    }),
                     jsxs("div", {
                       style: {
                         display: "inline-flex",
