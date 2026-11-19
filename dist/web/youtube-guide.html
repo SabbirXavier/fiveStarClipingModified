@@ -67,6 +67,116 @@
       font-size: 0.95rem;
     }
 
+    /* Video Tutorial Callout Card */
+    .video-card {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(249, 115, 22, 0.12) 100%);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-radius: 12px;
+      padding: 1.4rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .video-card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .video-card-icon {
+      font-size: 1.75rem;
+      line-height: 1;
+    }
+
+    .video-card-badge {
+      display: inline-block;
+      background: var(--accent-red);
+      color: #ffffff;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.25rem;
+    }
+
+    .video-card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.85rem;
+      margin-top: 1rem;
+    }
+
+    .video-item {
+      background: rgba(27, 20, 38, 0.85);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .video-item:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent-red);
+    }
+
+    .video-item-meta {
+      margin-bottom: 0.75rem;
+    }
+
+    .video-channel {
+      font-size: 0.75rem;
+      color: var(--accent-red);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+
+    .video-name {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: #ffffff;
+      line-height: 1.35;
+    }
+
+    .video-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    .video-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: #ff0033;
+      color: #ffffff !important;
+      text-decoration: none !important;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      border-radius: 6px;
+      border: none !important;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .video-btn:hover {
+      background: #cc0029;
+      transform: scale(1.02);
+    }
+
     .step-card {
       background-color: var(--bg-card);
       border: 1px solid var(--border-color);
@@ -119,16 +229,16 @@
     }
 
     a {
-      color: var(--accent-red);
+      color: #60a5fa;
       text-decoration: none;
       font-weight: 500;
-      border-bottom: 1px dashed rgba(239, 68, 68, 0.5);
+      border-bottom: 1px dashed rgba(96, 165, 250, 0.5);
       transition: color 0.15s ease, border-color 0.15s ease;
     }
 
     a:hover {
-      color: var(--accent-red-hover);
-      border-bottom-color: var(--accent-red-hover);
+      color: #93c5fd;
+      border-bottom-color: #93c5fd;
     }
 
     code {
@@ -148,15 +258,15 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
-      margin: 0.85rem 0;
+      gap: 1rem;
+      margin: 1rem 0;
+      word-break: break-all;
     }
 
     .uri-text {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      color: #fca5a5;
-      font-size: 0.9rem;
-      word-break: break-all;
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+      color: #93c5fd;
     }
 
     .copy-btn {
@@ -232,30 +342,67 @@
 <body>
   <div class="container">
     <header>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem; flex-wrap:wrap; gap:10px;">
         <a href="/" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; color:#9e93b3; border:none; text-decoration:none;">
           <span style="font-size:1.1rem;">←</span> Back to Fivestar
         </a>
         <a href="/instagram-guide.html" style="font-size:0.85rem; padding:0.35rem 0.85rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
-          <span>🟣</span> View Instagram Guide
+          <span>📸</span> View Instagram Reels Guide
         </a>
       </div>
       <h1>YouTube Shorts Direct Upload <span class="badge">Data API v3</span></h1>
       <p class="subtitle">Complete step-by-step configuration guide to create Google Cloud OAuth 2.0 Web Client credentials and connect your YouTube channel.</p>
     </header>
 
+    <!-- VIDEO TUTORIAL BANNER (INDIAN / HINDI CREATORS) -->
+    <div class="video-card">
+      <div class="video-card-header">
+        <span class="video-card-icon">🎥</span>
+        <div>
+          <span class="video-card-badge">Indian Tech Video Tutorials</span>
+          <div class="video-card-title">Watch Step-by-Step Video Guides (Hindi / English)</div>
+        </div>
+      </div>
+      <p style="font-size:0.9rem; margin-bottom:0.4rem;">Prefer watching a video walkthrough? These popular Indian developer guides walk you through Google Cloud Console, OAuth consent screen, and generating your Client ID &amp; Secret:</p>
+      
+      <div class="video-grid">
+        <div class="video-item">
+          <div class="video-item-meta">
+            <div class="video-channel">Techno Smarter • High-Rated Tutorial</div>
+            <div class="video-name">How to Get Google OAuth Client ID &amp; Secret in Google Cloud API Console</div>
+            <div class="video-desc">Detailed step-by-step video on creating a project, configuring OAuth consent screen, and generating Web Client credentials.</div>
+          </div>
+          <a href="https://www.youtube.com/watch?v=hz-Kyb18IBw" target="_blank" rel="noopener noreferrer" class="video-btn">
+            <span>▶</span> Watch Tutorial on YouTube ↗
+          </a>
+        </div>
+
+        <div class="video-item">
+          <div class="video-item-meta">
+            <div class="video-channel">JS Guru Atul • Hindi Guide</div>
+            <div class="video-name">Google OAuth | Get client_id and client_secret in Hindi</div>
+            <div class="video-desc">Clear Hindi explanation of creating OAuth credentials, setting up redirect URLs, and testing access in Google Cloud.</div>
+          </div>
+          <a href="https://www.youtube.com/watch?v=-CnjsP0Avb0" target="_blank" rel="noopener noreferrer" class="video-btn">
+            <span>▶</span> Watch Tutorial on YouTube ↗
+          </a>
+        </div>
+      </div>
+    </div>
+
     <!-- STEP 1 -->
     <section class="step-card">
       <div class="step-header">
         <div class="step-num">1</div>
-        <h2>Create or Select a Google Cloud Project</h2>
+        <h2>Create a Google Cloud Project</h2>
       </div>
-      <p>Google Cloud organizes all API permissions and client keys inside cloud projects.</p>
+      <p>Google Cloud organizes all API access under Projects. You will create a dedicated project for Fivestar uploads.</p>
       <ol>
-        <li>Sign in to <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud Console &rarr; New Project</a>.</li>
-        <li>Enter a <strong>Project name</strong> (e.g. <em>Fivestar Shorts Publisher</em>) and leave the Organization as <em>No organization</em>.</li>
-        <li>Click <strong>Create</strong> and wait a few seconds for the project to provision.</li>
-        <li>Make sure your newly created project is selected in the top project dropdown bar.</li>
+        <li>Open the <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud Console — New Project</a> page.</li>
+        <li>Sign in with the Google Account that owns or manages your YouTube channel.</li>
+        <li>Enter a <strong>Project name</strong> (e.g. <code>Fivestar Local Publisher</code>).</li>
+        <li>Leave <em>Organization</em> as <strong>No organization</strong> and click <strong>Create</strong>.</li>
+        <li>Wait a few seconds, then ensure the newly created project is selected in the top project dropdown.</li>
       </ol>
     </section>
 
@@ -263,13 +410,13 @@
     <section class="step-card">
       <div class="step-header">
         <div class="step-num">2</div>
-        <h2>Enable the YouTube Data API v3</h2>
+        <h2>Enable YouTube Data API v3</h2>
       </div>
-      <p>You must enable the YouTube Data API v3 on your project so Google permits video uploads.</p>
+      <p>Enable the YouTube upload and channel management service on your project.</p>
       <ol>
-        <li>Open the <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer">YouTube Data API v3 in API Library</a>.</li>
-        <li>Verify that your project from Step 1 is selected at the top.</li>
-        <li>Click the blue <strong>Enable</strong> button. Once enabled, you will be redirected to the API dashboard.</li>
+        <li>Go to the <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer">YouTube Data API v3 Library Page</a>.</li>
+        <li>Verify your project is selected in the top bar.</li>
+        <li>Click the blue <strong>Enable</strong> button.</li>
       </ol>
     </section>
 
@@ -277,27 +424,23 @@
     <section class="step-card">
       <div class="step-header">
         <div class="step-num">3</div>
-        <h2>Configure the OAuth Consent Screen &amp; Add Test Users</h2>
+        <h2>Configure the OAuth Consent Screen</h2>
       </div>
-      <p>Before creating credentials, Google requires configuring an OAuth Consent Screen and declaring authorized Test Users.</p>
+      <p>Configure what users (you) see when connecting your YouTube channel to Fivestar.</p>
       <ol>
-        <li>Go to <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener noreferrer">APIs &amp; Services &rarr; OAuth consent screen</a>.</li>
-        <li>Select <strong>External</strong> as the User Type, then click <strong>Create</strong>.</li>
+        <li>In the left sidebar, click <strong>APIs &amp; Services &rarr; OAuth consent screen</strong> (or visit <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener noreferrer">Consent Screen Settings</a>).</li>
+        <li>Under <strong>User Type</strong>, select <strong>External</strong> and click <strong>Create</strong>.</li>
         <li>Fill in the required fields:
-          <ul>
-            <li><strong>App name:</strong> <em>Fivestar</em> (or your channel name)</li>
-            <li><strong>User support email:</strong> Select your Google email address</li>
-            <li><strong>Developer contact information:</strong> Enter your email address</li>
+          <ul style="margin-top:0.3rem;">
+            <li><strong>App name:</strong> <code>Fivestar</code></li>
+            <li><strong>User support email:</strong> Select your email address.</li>
+            <li><strong>Developer contact information:</strong> Enter your email address.</li>
           </ul>
         </li>
-        <li>Click <strong>Save and Continue</strong> through the <em>Scopes</em> page (no custom scopes needed).</li>
-        <li>On the <strong>Test users</strong> screen, click <strong>+ Add Users</strong> and enter the exact Google email address associated with your YouTube channel.</li>
-        <li>Click <strong>Add</strong>, then click <strong>Save and Continue</strong>.</li>
+        <li>Click <strong>Save and Continue</strong> through the <em>Scopes</em> page (scopes are requested automatically at login).</li>
+        <li>On the <strong>Test users</strong> page, click <strong>+ Add Users</strong> and enter the Gmail address of your YouTube channel. <em>(Crucial: Test users can sign in even while the app is unverified).</em></li>
+        <li>Click <strong>Save and Continue</strong>, then click <strong>Back to Dashboard</strong>.</li>
       </ol>
-
-      <div class="callout">
-        <strong>Important (Avoid "App Not Verified" Block):</strong> If you do not add your channel's Google email under <strong>Test users</strong>, Google will block your sign-in with a <code>403 access_denied</code> error because your personal OAuth app is in Testing mode.
-      </div>
     </section>
 
     <!-- STEP 4 -->

@@ -12,11 +12,13 @@
       --border-color: #382a4d;
       --accent-pink: #e55992;
       --accent-pink-hover: #f26ca3;
+      --accent-purple: #a855f7;
       --text-main: #f3effa;
       --text-muted: #9e93b3;
       --code-bg: #2a1f3a;
       --success: #34d399;
       --warning: #fbbf24;
+      --yt-red: #ff334b;
     }
 
     * {
@@ -65,6 +67,116 @@
     .subtitle {
       color: var(--text-muted);
       font-size: 0.95rem;
+    }
+
+    /* Video Tutorial Callout Card */
+    .video-card {
+      background: linear-gradient(135deg, rgba(229, 89, 146, 0.12) 0%, rgba(168, 85, 247, 0.12) 100%);
+      border: 1px solid rgba(229, 89, 146, 0.35);
+      border-radius: 12px;
+      padding: 1.4rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .video-card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .video-card-icon {
+      font-size: 1.75rem;
+      line-height: 1;
+    }
+
+    .video-card-badge {
+      display: inline-block;
+      background: var(--accent-pink);
+      color: #130e1c;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin-bottom: 0.25rem;
+    }
+
+    .video-card-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.85rem;
+      margin-top: 1rem;
+    }
+
+    .video-item {
+      background: rgba(27, 20, 38, 0.85);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .video-item:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent-pink);
+    }
+
+    .video-item-meta {
+      margin-bottom: 0.75rem;
+    }
+
+    .video-channel {
+      font-size: 0.75rem;
+      color: var(--accent-pink);
+      font-weight: 600;
+      text-transform: uppercase;
+      margin-bottom: 0.25rem;
+    }
+
+    .video-name {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: #ffffff;
+      line-height: 1.35;
+    }
+
+    .video-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    .video-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: #ff0033;
+      color: #ffffff !important;
+      text-decoration: none !important;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      border-radius: 6px;
+      border: none !important;
+      transition: background 0.15s ease, transform 0.15s ease;
+    }
+
+    .video-btn:hover {
+      background: #cc0029;
+      transform: scale(1.02);
     }
 
     .step-card {
@@ -188,8 +300,17 @@
       font-size: 0.9rem;
     }
 
+    .callout.info {
+      background-color: rgba(168, 85, 247, 0.08);
+      border-left: 3px solid var(--accent-purple);
+    }
+
     .callout strong {
       color: var(--warning);
+    }
+
+    .callout.info strong {
+      color: #c084fc;
     }
 
     table {
@@ -230,17 +351,53 @@
 <body>
   <div class="container">
     <header>
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem; flex-wrap:wrap; gap:10px;">
         <a href="/" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; color:#9e93b3; border:none; text-decoration:none;">
           <span style="font-size:1.1rem;">←</span> Back to Fivestar
         </a>
         <a href="/youtube-guide.html" style="font-size:0.85rem; padding:0.35rem 0.85rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
-          <span>🔴</span> View YouTube Guide
+          <span>🔴</span> View YouTube Shorts Guide
         </a>
       </div>
       <h1>Instagram Reels Direct Upload <span class="badge">Graph API</span></h1>
-      <p class="subtitle">Complete step-by-step configuration guide to generate your Meta Graph API credentials and connect your account.</p>
+      <p class="subtitle">Complete step-by-step configuration guide to generate Meta Graph API credentials and upload Reels directly from Fivestar.</p>
     </header>
+
+    <!-- VIDEO TUTORIAL BANNER (INDIAN / HINDI CREATORS) -->
+    <div class="video-card">
+      <div class="video-card-header">
+        <span class="video-card-icon">🎥</span>
+        <div>
+          <span class="video-card-badge">Indian Tech Video Tutorials</span>
+          <div class="video-card-title">Watch Step-by-Step Video Guides (Hindi / Urdu)</div>
+        </div>
+      </div>
+      <p style="font-size:0.9rem; margin-bottom:0.4rem;">If you prefer following a visual tutorial, these highly-rated guides walk you through setting up your Meta Developer App, connecting Instagram to Facebook, and generating Graph API access tokens:</p>
+      
+      <div class="video-grid">
+        <div class="video-item">
+          <div class="video-item-meta">
+            <div class="video-channel">Solutions with Shahzain • Latest 2026 Guide</div>
+            <div class="video-name">Facebook + Instagram Official API Setup — Meta Graph API Complete Guide</div>
+            <div class="video-desc">Full walkthrough of Meta Developer account creation, App creation, and Instagram Graph API setup in Hindi/Urdu.</div>
+          </div>
+          <a href="https://www.youtube.com/watch?v=STfP0X_zDBE" target="_blank" rel="noopener noreferrer" class="video-btn">
+            <span>▶</span> Watch Tutorial on YouTube ↗
+          </a>
+        </div>
+
+        <div class="video-item">
+          <div class="video-item-meta">
+            <div class="video-channel">4x Tech • Hindi Tutorial</div>
+            <div class="video-name">How to Generate Facebook &amp; Instagram Access Token Full Tutorial</div>
+            <div class="video-desc">Quick, direct guide explaining Graph API Explorer, permission selection, and token generation in Hindi.</div>
+          </div>
+          <a href="https://www.youtube.com/watch?v=4qeAkTdlM2Y" target="_blank" rel="noopener noreferrer" class="video-btn">
+            <span>▶</span> Watch Tutorial on YouTube ↗
+          </a>
+        </div>
+      </div>
+    </div>
 
     <!-- STEP 1 -->
     <section class="step-card">
@@ -248,11 +405,11 @@
         <div class="step-num">1</div>
         <h2>Convert to a Professional Account &amp; Link a Facebook Page</h2>
       </div>
-      <p>Meta's Content Publishing API does not support personal Instagram accounts. Your Instagram profile must be a <strong>Business</strong> or <strong>Creator</strong> account linked to a Facebook Page you manage.</p>
+      <p>Meta's Graph API does not allow publishing from personal Instagram accounts. Your profile must be a <strong>Professional (Business or Creator)</strong> account linked to a Facebook Page you manage.</p>
       <ol>
-        <li>Open the Instagram app, go to <strong>Settings and activity &rarr; Account type and tools</strong>, and tap <strong>Switch to professional account</strong> (choose either <em>Creator</em> or <em>Business</em>).</li>
+        <li>Open Instagram on your phone &rarr; go to <strong>Settings and activity &rarr; Account type and tools</strong> &rarr; tap <strong>Switch to professional account</strong> (choose either <em>Creator</em> or <em>Business</em>).</li>
         <li>If you do not already have a Facebook Page, create one at <a href="https://www.facebook.com/pages/create" target="_blank" rel="noopener noreferrer">facebook.com/pages/create</a>.</li>
-        <li>Link them via <a href="https://business.facebook.com/settings/instagram-accounts" target="_blank" rel="noopener noreferrer">Meta Business Suite &rarr; Instagram Accounts</a> or in the Instagram mobile app under <strong>Edit profile &rarr; Page &rarr; Connect or create</strong>.</li>
+        <li>Link your Instagram to your Facebook Page via <a href="https://business.facebook.com/settings/instagram-accounts" target="_blank" rel="noopener noreferrer">Meta Business Suite &rarr; Instagram Accounts</a>, or inside Instagram mobile app under <strong>Edit profile &rarr; Page &rarr; Connect or create</strong>.</li>
       </ol>
     </section>
 
@@ -264,12 +421,22 @@
       </div>
       <p>You need a Meta App container to generate API access tokens and obtain your App ID and App Secret.</p>
       <ol>
-        <li>Sign in to the <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta for Developers App Dashboard</a> and click <strong>Create App</strong>.</li>
-        <li>Enter an App Name (e.g., <em>Reels Auto Publisher</em>) and your contact email, then click <strong>Next</strong>.</li>
-        <li>Under <strong>Use cases</strong>, select <strong>Other</strong> &rarr; click <strong>Next</strong>.</li>
-        <li>Select <strong>Business</strong> as the app type &rarr; click <strong>Next</strong>, review details, and click <strong>Create app</strong>.</li>
-        <li>Once inside your App Dashboard, go to <strong>App settings &rarr; Basic</strong> in the left sidebar. Copy your <strong>App ID</strong> and click <strong>Show</strong> to copy your <strong>App Secret</strong> for Step 4.</li>
+        <li>Sign in with your Facebook account at the <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta for Developers App Dashboard</a> and click <strong>Create App</strong>.</li>
+        <li>Enter an App Name (e.g., <em>Fivestar Reels Publisher</em>) and your contact email.</li>
+        <li>When asked for use case or app type:
+          <ul style="margin-top:0.3rem;">
+            <li>Select <strong>Other</strong> &rarr; click <strong>Next</strong> &rarr; select <strong>Business</strong> as the app type &rarr; click <strong>Create app</strong>.</li>
+            <li><em>(If using the newer Meta dashboard layout, select "Publish to Instagram" or "Instagram Graph API").</em></li>
+          </ul>
+        </li>
+        <li>Once inside your App Dashboard, go to <strong>App settings &rarr; Basic</strong> in the left sidebar.</li>
+        <li>Copy your <strong>App ID</strong>, and click <strong>Show</strong> to copy your <strong>App Secret</strong>.</li>
       </ol>
+
+      <div class="callout info">
+        <strong>No Meta App Review or Verification Needed for Personal Use!</strong><br />
+        By default, your app is in <strong>Development Mode</strong>. As the app creator, your Facebook account is automatically an Administrator and Developer. This means you can immediately publish Reels to your own connected Instagram account without going through Meta's business verification or app review!
+      </div>
     </section>
 
     <!-- STEP 3 -->
@@ -278,12 +445,12 @@
         <div class="step-num">3</div>
         <h2>Generate Your Graph API Access Token (<code>EAA...</code>)</h2>
       </div>
-      <p>Use Meta's Graph API Explorer to generate a User Access Token authorized for Reels publishing.</p>
+      <p>Use Meta's Graph API Explorer to generate your User Access Token authorized for Reels publishing.</p>
       <ol>
         <li>Open the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Meta Graph API Explorer</a>.</li>
-        <li>In the right-hand panel under <strong>Meta App</strong>, select the app you just created in Step 2.</li>
-        <li>Under <strong>User or Page</strong>, leave it set to <strong>User Token</strong>.</li>
-        <li>Under <strong>Permissions</strong>, search for and add all five permissions below (click to copy):</li>
+        <li>In the top right panel under <strong>Meta App</strong>, select the app you just created in Step 2.</li>
+        <li>Under <strong>User or Page</strong>, select <strong>User Token</strong>.</li>
+        <li>Under <strong>Permissions</strong>, click <em>Add a Permission</em> and select all 5 permissions below:</li>
       </ol>
 
       <div class="permission-grid">
@@ -310,12 +477,17 @@
       </div>
 
       <ol start="5">
-        <li>Click <strong>Generate Access Token</strong>. In the Facebook login popup, grant access to the exact Facebook Page and Instagram account you linked in Step 1.</li>
+        <li>Click <strong>Generate Access Token</strong>. In the Facebook login popup, check the boxes to grant access to both your Facebook Page and linked Instagram account.</li>
         <li>Copy the generated token string starting with <code>EAA...</code> from the top <strong>Access Token</strong> field.</li>
       </ol>
 
       <div class="callout">
-        <strong>Token Expiration Tip:</strong> Tokens generated directly in the Graph API Explorer expire after <strong>1 hour</strong>. To convert it into a <strong>60-day long-lived token</strong> immediately, paste it into the <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer">Meta Access Token Debugger</a>, click <strong>Debug</strong>, and click <strong>Extend Access Token</strong> at the bottom of the page.
+        <strong>Extending Token to 60 Days:</strong><br />
+        Tokens generated in the Graph API Explorer expire after <strong>1 hour</strong>. You can extend it in two easy ways:
+        <ul style="margin: 0.5rem 0 0 1.2rem;">
+          <li><strong>Option A (Recommended):</strong> Enter your <strong>Meta App ID</strong> and <strong>Meta App Secret</strong> in Fivestar Settings along with the token. Fivestar will automatically extend and refresh your token for 60 days.</li>
+          <li><strong>Option B:</strong> Paste the token into the <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer">Meta Access Token Debugger</a>, click <strong>Debug</strong>, and click <strong>Extend Access Token</strong> at the bottom.</li>
+        </ul>
       </div>
     </section>
 
@@ -323,14 +495,14 @@
     <section class="step-card">
       <div class="step-header">
         <div class="step-num">4</div>
-        <h2>Fill In Your App Connection Settings</h2>
+        <h2>Fill In Fivestar Settings (⚙️)</h2>
       </div>
-      <p>Map the credentials you collected into the four fields of your connection panel:</p>
+      <p>Click the <strong>Settings (⚙️)</strong> button in the top right of Fivestar and paste your credentials into the Instagram section:</p>
 
       <table>
         <thead>
           <tr>
-            <th>Form Field</th>
+            <th>Setting Field</th>
             <th>Status</th>
             <th>Where to Get Value</th>
           </tr>
@@ -339,37 +511,43 @@
           <tr>
             <td><strong>Meta Graph API Access Token</strong></td>
             <td><span class="req-tag">Required</span></td>
-            <td>Paste the <code>EAA...</code> User Access Token copied from the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Graph API Explorer</a> (or extended via the <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer">Token Debugger</a>).</td>
+            <td>The <code>EAA...</code> token string copied from Step 3 (Graph API Explorer).</td>
           </tr>
           <tr>
             <td><strong>Instagram Business/Creator User ID</strong></td>
-            <td><span class="opt-tag">Optional</span></td>
-            <td>Leave blank to auto-detect from your linked Facebook Page. If you have multiple linked Pages, query <code>me/accounts?fields=instagram_business_account</code> in the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Graph API Explorer</a> and paste the 17-digit <code>id</code>.</td>
+            <td><span class="opt-tag">Optional (Auto-detected)</span></td>
+            <td>Leave blank to automatically detect your Instagram account from your linked Facebook Page. If you prefer to enter it manually, query <code>me/accounts?fields=instagram_business_account</code> in Graph API Explorer to find the 17-digit numeric ID.</td>
           </tr>
           <tr>
             <td><strong>Meta App ID</strong></td>
-            <td><span class="opt-tag">Optional (Recommended)</span></td>
-            <td>Found in <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta App Dashboard</a> &rarr; <strong>App settings &rarr; Basic</strong>. Enables automatic 60-day token renewal.</td>
+            <td><span class="opt-tag">Recommended</span></td>
+            <td>Found in Meta Developer Dashboard &rarr; <strong>App settings &rarr; Basic</strong>. Allows Fivestar to renew your token for 60 days.</td>
           </tr>
           <tr>
             <td><strong>Meta App Secret</strong></td>
-            <td><span class="opt-tag">Optional (Recommended)</span></td>
-            <td>Found next to App ID in <strong>App settings &rarr; Basic</strong> (click <em>Show</em>). Required alongside App ID to exchange short-lived tokens for 60-day tokens.</td>
+            <td><span class="opt-tag">Recommended</span></td>
+            <td>Found next to App ID in <strong>App settings &rarr; Basic</strong> (click <em>Show</em>). Used with App ID to exchange short-lived tokens for 60-day tokens.</td>
           </tr>
         </tbody>
       </table>
+
+      <p style="margin-top: 1rem;">Click <strong>Save &amp; Connect Instagram</strong>. Fivestar will verify the token, fetch your Instagram username, and display your connected account!</p>
     </section>
 
     <!-- STEP 5 -->
     <section class="step-card">
       <div class="step-header">
         <div class="step-num">5</div>
-        <h2>Quick Troubleshooting</h2>
+        <h2>How Fivestar Uploads Reels &amp; Troubleshooting</h2>
       </div>
       <ul>
-        <li><strong>"No Instagram Business account found":</strong> Ensure your Instagram account is switched to Business/Creator and that you selected both the Facebook Page and Instagram account during the OAuth consent popup in Step 3.</li>
-        <li><strong>"Invalid OAuth access token" / Expired Token:</strong> Short-lived tokens expire in 60 minutes. Always provide your <strong>Meta App ID</strong> and <strong>Meta App Secret</strong> so the backend can exchange and refresh the token for 60 days.</li>
-        <li><strong>Reels Upload Rejected:</strong> Instagram Graph API requires Reels videos to be hosted at a publicly accessible HTTPS URL (MP4/MOV, 9:16 aspect ratio recommended, 3 seconds to 15 minutes duration, max 1 GB).</li>
+        <li><strong>No Cloud Hosting or S3 Required:</strong> Fivestar uploads your exported MP4 directly from your computer to Meta's servers using the <em>Resumable Binary Upload</em> endpoint (<code>rupload.facebook.com</code>). You do <strong>not</strong> need any public web domain or external file hosting.</li>
+        <li><strong>Video Format Requirements:</strong>
+          Vertical MP4 (9:16 aspect ratio, recommended 1080x1920), 30 to 60 fps, duration between 3 seconds and 90 seconds (Fivestar clips are 30–60s by default, which fits Instagram Reels guidelines).
+        </li>
+        <li><strong>"No Instagram Business account found":</strong> Make sure your Instagram account was converted to Business or Creator and connected to a Facebook Page, and that you gave permissions to that Facebook Page during the popup in Step 3.</li>
+        <li><strong>"Session Expired" / "Error validating access token":</strong> Your 1-hour token expired. Enter your <strong>Meta App ID</strong> and <strong>Meta App Secret</strong> in Settings and click <strong>Extend Token</strong> (or re-generate an extended token via Token Debugger).</li>
+        <li><strong>"Requires instagram_content_publish":</strong> Make sure all 5 permissions listed in Step 3 were added before clicking <em>Generate Access Token</em>.</li>
       </ul>
     </section>
   </div>

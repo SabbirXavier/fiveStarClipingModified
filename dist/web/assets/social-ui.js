@@ -1371,6 +1371,14 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                           style: { textDecoration: "none", fontSize: 12.5, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 },
                           children: ["Open Guide in new tab ↗"],
                         }),
+                        jsx("a", {
+                          href: "https://www.youtube.com/watch?v=hz-Kyb18IBw",
+                          target: "_blank",
+                          rel: "noreferrer",
+                          className: "btn btn-small",
+                          style: { textDecoration: "none", fontSize: 12.5, padding: "5px 11px", display: "inline-flex", alignItems: "center", gap: 5, color: "#fca5a5", border: "1px solid rgba(239, 68, 68, 0.45)", background: "rgba(239, 68, 68, 0.08)" },
+                          children: ["🎥 Video Tutorial (Hindi) ↗"],
+                        }),
                         jsx("button", {
                           type: "button",
                           className: "btn btn-small",
@@ -1386,6 +1394,36 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                   jsxs("div", {
                     style: contentStyle,
                     children: [
+                      jsxs("div", {
+                        style: {
+                          background: "rgba(239, 68, 68, 0.12)",
+                          border: "1px solid rgba(239, 68, 68, 0.35)",
+                          borderRadius: 8,
+                          padding: "8px 12px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 10,
+                        },
+                        children: [
+                          jsxs("div", {
+                            style: { fontSize: 12.5, color: "#fca5a5" },
+                            children: [
+                              jsx("strong", { children: "🎥 Recommended Indian Video: " }),
+                              "Techno Smarter — Google OAuth Client ID & Secret in Google Cloud (Hindi)",
+                            ],
+                          }),
+                          jsx("a", {
+                            href: "https://www.youtube.com/watch?v=hz-Kyb18IBw",
+                            target: "_blank",
+                            rel: "noreferrer",
+                            style: { color: "#ffffff", background: "#ff0033", padding: "4px 9px", borderRadius: 5, fontSize: 11.5, fontWeight: 600, textDecoration: "none" },
+                            children: "▶ Watch on YouTube ↗",
+                          }),
+                        ],
+                      }),
                       jsxs("div", {
                         style: { display: "flex", alignItems: "flex-start" },
                         children: [
@@ -1561,6 +1599,14 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                           style: { textDecoration: "none", fontSize: 12.5, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 },
                           children: ["Open Guide in new tab ↗"],
                         }),
+                        jsx("a", {
+                          href: "https://www.youtube.com/watch?v=STfP0X_zDBE",
+                          target: "_blank",
+                          rel: "noreferrer",
+                          className: "btn btn-small",
+                          style: { textDecoration: "none", fontSize: 12.5, padding: "5px 11px", display: "inline-flex", alignItems: "center", gap: 5, color: "#f9a8d4", border: "1px solid rgba(229, 89, 146, 0.45)", background: "rgba(229, 89, 146, 0.08)" },
+                          children: ["🎥 Video Tutorial (Hindi) ↗"],
+                        }),
                         jsx("button", {
                           type: "button",
                           className: "btn btn-small",
@@ -1576,6 +1622,36 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                   jsxs("div", {
                     style: contentStyle,
                     children: [
+                      jsxs("div", {
+                        style: {
+                          background: "rgba(229, 89, 146, 0.12)",
+                          border: "1px solid rgba(229, 89, 146, 0.35)",
+                          borderRadius: 8,
+                          padding: "8px 12px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 10,
+                        },
+                        children: [
+                          jsxs("div", {
+                            style: { fontSize: 12.5, color: "#f9a8d4" },
+                            children: [
+                              jsx("strong", { children: "🎥 Recommended Indian Video: " }),
+                              "Solutions with Shahzain — Meta Graph API Complete Guide (Hindi/Urdu)",
+                            ],
+                          }),
+                          jsx("a", {
+                            href: "https://www.youtube.com/watch?v=STfP0X_zDBE",
+                            target: "_blank",
+                            rel: "noreferrer",
+                            style: { color: "#ffffff", background: "#ff0033", padding: "4px 9px", borderRadius: 5, fontSize: 11.5, fontWeight: 600, textDecoration: "none" },
+                            children: "▶ Watch on YouTube ↗",
+                          }),
+                        ],
+                      }),
                       jsxs("div", {
                         style: { display: "flex", alignItems: "flex-start" },
                         children: [
