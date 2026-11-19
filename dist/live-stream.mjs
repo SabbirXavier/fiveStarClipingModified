@@ -156,7 +156,20 @@ export function registerLiveRoutes(app, deps) {
       const channel = meta.uploader || meta.channel || "Unknown Creator";
       const thumbnail = meta.thumbnail || meta.thumbnails?.[meta.thumbnails.length - 1]?.url || "";
       const viewCount = Number(meta.view_count) || undefined;
-      const duration = Number(meta.duration) || 7200; // default 2hr DVR estimate if continuous
+      
+      let duration = Number(meta.duration) || 0;
+      if (isLiveNow || !duration) {
+        const streamStart = Number(meta.release_timestamp) || Number(meta.timestamp);
+        if (streamStart && streamStart > 1e9) {
+          const elapsed = Math.floor(Date.now() / 1000) - streamStart;
+          if (elapsed > 0) {
+            duration = elapsed;
+          }
+        }
+        if (!duration || duration < 300) {
+          duration = 43200; // YouTube max DVR buffer: 12 hours
+        }
+      }
 
       // Also get direct stream format url if available
       let streamUrl = null;
@@ -417,17 +430,31 @@ export function registerLiveRoutes(app, deps) {
         return res.status(500).json({ error: `Slice failed: ${errorMsg}` });
       }
 
-      // If output is not mp4, remux
-      if (!actualSrc.endsWith(".mp4")) {
-        const remuxed = path.join(cPath, "src_remux.mp4");
-        if (ffmpegBin) {
-          const remux = spawn(ffmpegBin, ["-y", "-i", actualSrc, "-c", "copy", remuxed]);
+      // Always remux through FFmpeg with +faststart to guarantee a clean, fast-start ISO MP4 container
+      // (yt-dlp slicing of HLS m3u8 streams retains raw MPEG-TS container packets even with .mp4 extension)
+      if (ffmpegBin) {
+        const cleanMp4 = path.join(cPath, "src_clean.mp4");
+        try {
+          const remux = spawn(ffmpegBin, [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-fflags", "+genpts",
+            "-i", actualSrc,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            cleanMp4
+          ]);
           await new Promise(r => remux.on("close", r));
-          if (fs.existsSync(remuxed)) {
-            try { fs.unlinkSync(actualSrc); } catch {}
-            fs.renameSync(remuxed, targetSrcFile);
+          if (fs.existsSync(cleanMp4) && fs.statSync(cleanMp4).size >= 5000) {
+            try { if (actualSrc !== cleanMp4 && fs.existsSync(actualSrc)) fs.unlinkSync(actualSrc); } catch {}
+            if (cleanMp4 !== targetSrcFile) {
+              try { if (fs.existsSync(targetSrcFile)) fs.unlinkSync(targetSrcFile); } catch {}
+              fs.renameSync(cleanMp4, targetSrcFile);
+            }
             actualSrc = targetSrcFile;
+            console.log(`[Live Clipper] Successfully remuxed clip to compliant ISO MP4 (${fs.statSync(actualSrc).size} bytes)`);
           }
+        } catch (remuxErr) {
+          console.warn("[Live Clipper] Remux warning:", remuxErr.message);
         }
       }
 
@@ -627,11 +654,11 @@ export function registerLiveRoutes(app, deps) {
       }
 
       const windowDuration = end - start;
-      if (windowDuration < 30) {
-        return res.status(400).json({ error: "Analysis window should be at least 30 seconds." });
+      if (windowDuration < 5) {
+        return res.status(400).json({ error: "Analysis window should be at least 5 seconds." });
       }
-      if (windowDuration > 3600) {
-        return res.status(400).json({ error: "Analysis window should be at most 60 minutes for fast live processing." });
+      if (windowDuration > 7200) {
+        return res.status(400).json({ error: "Analysis window should be at most 2 hours for fast live processing." });
       }
 
       const projectId = "pwin" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
@@ -641,17 +668,17 @@ export function registerLiveRoutes(app, deps) {
       console.log(`[Live Clipper] Analyzing window: ${url} from ${formatTime(start)} to ${formatTime(end)} (${windowDuration}s)...`);
 
       // Determine number of highlight moments to generate based on window length
-      // e.g. 5-15 min -> 3 moments; 15-30 min -> 4 moments; 30-60 min -> 5 moments
-      const momentCount = windowDuration <= 600 ? 3 : windowDuration <= 1800 ? 4 : 5;
-      const targetClipDuration = Math.min(65, Math.max(35, Math.floor(windowDuration / (momentCount + 1))));
+      // e.g. < 45s -> 1 moment; 45s-300s -> 2 moments; 5m-15m -> 3 moments; 15-30m -> 4 moments; 30m+ -> 5 moments
+      const momentCount = windowDuration <= 45 ? 1 : windowDuration <= 300 ? 2 : windowDuration <= 900 ? 3 : windowDuration <= 1800 ? 4 : 5;
+      const targetClipDuration = Math.min(60, Math.max(15, Math.floor(windowDuration / Math.max(1, momentCount))));
 
-      // Divide the window strategically across peaks
+      // Divide the window strategically across peaks using absolute timestamps
       const moments = [];
-      const step = (windowDuration - targetClipDuration) / Math.max(1, momentCount - 1);
+      const step = momentCount > 1 ? (windowDuration - targetClipDuration) / (momentCount - 1) : 0;
 
       for (let i = 0; i < momentCount; i++) {
-        const mStart = Math.min(windowDuration - targetClipDuration, Math.round(i * step));
-        const mEnd = Math.min(windowDuration, mStart + targetClipDuration);
+        const mStart = Math.round(start + i * step);
+        const mEnd = Math.min(end, mStart + targetClipDuration);
         const heat = 98 - i * 4;
         const stars = i === 0 ? 5 : i < 3 ? 4 : 3;
 
@@ -660,6 +687,7 @@ export function registerLiveRoutes(app, deps) {
           rank: i + 1,
           start: mStart,
           end: mEnd,
+          peak: Math.round((mStart + mEnd) / 2),
           heat,
           stars,
           reasons: [
@@ -680,7 +708,7 @@ export function registerLiveRoutes(app, deps) {
           platform,
           title: `[LIVE HIGHLIGHTS] ${title} (${formatTime(start)} - ${formatTime(end)})`,
           channel,
-          duration: windowDuration,
+          duration: Math.max(end, 43200),
           thumbnail: req.body?.thumbnail || "",
           id: videoId
         },

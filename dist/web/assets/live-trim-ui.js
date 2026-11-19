@@ -332,6 +332,82 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         color: #4ade80;
         border-color: rgba(74, 222, 128, 0.25);
       }
+            .btn-live-sync {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(239, 68, 68, 0.16);
+        border: 1px solid rgba(239, 68, 68, 0.45);
+        color: #fca5a5;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 12px;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-live-sync:hover {
+        background: rgba(239, 68, 68, 0.32);
+        border-color: #ef4444;
+        color: #ffffff;
+        transform: translateY(-1px);
+      }
+      .live-dot-pulse {
+        width: 7px;
+        height: 7px;
+        background: #ef4444;
+        border-radius: 50%;
+        box-shadow: 0 0 6px #ef4444;
+        animation: livePulseAnim 1.4s infinite;
+      }
+      @keyframes livePulseAnim {
+        0% { transform: scale(0.9); opacity: 0.8; }
+        50% { transform: scale(1.3); opacity: 1; }
+        100% { transform: scale(0.9); opacity: 0.8; }
+      }
+      .btn-record-live {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(239, 68, 68, 0.2);
+        border: 1px solid rgba(239, 68, 68, 0.5);
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 8px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      .btn-record-live:hover {
+        background: rgba(239, 68, 68, 0.35);
+        border-color: #ef4444;
+      }
+      .btn-record-live-active {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: #dc2626 !important;
+        border: 1px solid #ef4444 !important;
+        color: #ffffff !important;
+        font-size: 13px !important;
+        font-weight: 800 !important;
+        padding: 8px 16px !important;
+        border-radius: 8px !important;
+        cursor: pointer;
+        box-shadow: 0 0 16px rgba(239, 68, 68, 0.6);
+        animation: recGlow 1.2s infinite alternate;
+      }
+      @keyframes recGlow {
+        from { box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+        to { box-shadow: 0 0 20px rgba(239, 68, 68, 0.9); }
+      }
+      .rec-square {
+        width: 10px;
+        height: 10px;
+        background: #ffffff;
+        border-radius: 2px;
+      }
       .trim-duration-pill.warn {
         color: #f87171;
         border-color: rgba(248, 113, 113, 0.25);
@@ -761,6 +837,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     isLive = false,
     addLabel = "Add moment",
     applyLabel = "Apply Changes",
+    onSyncToLive = null,
     extraAction = null
   }) {
     const totalDuration = Math.max(10, duration);
@@ -772,6 +849,19 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
 
     const trackRef = useRef(null);
     const loopTimerRef = useRef(null);
+    const handleSyncLive = () => {
+      const currentLen = Math.max(5, Math.min(60, end - start));
+      const newEnd = totalDuration;
+      const newStart = Math.max(0, newEnd - currentLen);
+      updateTrim(newStart, newEnd);
+      setPlayhead(newEnd);
+      seekActivePlayers(newEnd);
+      if (typeof onSyncToLive === "function") {
+        onSyncToLive({ start: newStart, end: newEnd });
+      }
+      toast?.("🔴 Synced to live head (" + formatSec(newEnd) + ")");
+    };
+
 
     // Sync when moment prop changes or selected
     useEffect(() => {
@@ -941,11 +1031,26 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
               jsxs("div", {
-                className: `trim-duration-pill ${isDurationGood ? "good" : "warn"}`,
+                style: { display: "flex", gap: "10px", alignItems: "center" },
                 children: [
-                  "Clip Duration: ",
-                  jsx("b", { children: `${clipDuration}s` }),
-                  clipDuration > 180 ? " (Over 3m)" : clipDuration < 3 ? " (Min 3s)" : " (Ideal for Shorts & Reels)"
+                  isLive && jsxs("button", {
+                    type: "button",
+                    className: "btn-live-sync",
+                    onClick: handleSyncLive,
+                    title: "Jump trim handles directly to the live broadcast head",
+                    children: [
+                      jsx("span", { className: "live-dot-pulse" }),
+                      "Live Sync"
+                    ]
+                  }),
+                  jsxs("div", {
+                    className: `trim-duration-pill ${isDurationGood ? "good" : "warn"}`,
+                    children: [
+                      "Clip Duration: ",
+                      jsx("b", { children: `${clipDuration}s` }),
+                      clipDuration > 180 ? " (Over 3m)" : clipDuration < 3 ? " (Min 3s)" : " (Ideal for Shorts & Reels)"
+                    ]
+                  })
                 ]
               })
             ]
@@ -1185,8 +1290,99 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [lastCreatedClip, setLastCreatedClip] = useState(null);
     const [sessionClips, setSessionClips] = useState([]);
     const [useOfficialEmbed, setUseOfficialEmbed] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordSec, setRecordSec] = useState(0);
+    const [recordStart, setRecordStart] = useState(0);
+    const recordTimerRef = useRef(null);
 
     const playerRef = useRef(null);
+
+    useEffect(() => {
+      return () => {
+        if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      };
+    }, []);
+
+    const handleSyncLiveHead = async () => {
+      if (!streamInfo?.url) return;
+      try {
+        const res = await fetch("/api/live/info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: streamInfo.url })
+        });
+        const latest = await res.json();
+        if (latest.ok && latest.duration) {
+          setStreamInfo(prev => ({ ...prev, duration: latest.duration }));
+          const newEnd = latest.duration;
+          const currentDuration = Math.min(60, Math.max(5, trim.end - trim.start));
+          const newStart = Math.max(0, newEnd - currentDuration);
+          setTrim({ start: newStart, end: newEnd, duration: currentDuration });
+        }
+      } catch (e) {
+        console.warn("Could not refresh live head:", e.message);
+      }
+    };
+
+    const handleStartRecording = () => {
+      if (!streamInfo) return;
+      const currentHead = streamInfo.duration || 7200;
+      setRecordStart(currentHead);
+      setRecordSec(0);
+      setIsRecording(true);
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = setInterval(() => {
+        setRecordSec(s => s + 1);
+      }, 1000);
+      toast?.("🔴 Live recording started! Click 'Stop & Clip' when the moment ends.");
+    };
+
+    const handleStopRecording = async () => {
+      clearInterval(recordTimerRef.current);
+      setIsRecording(false);
+      const dur = Math.max(3, recordSec);
+      if (dur < 3) {
+        return toast?.("Recording must be at least 3 seconds.", true);
+      }
+      const end = (streamInfo.duration || recordStart) + dur;
+      const start = Math.max(0, end - dur);
+
+      setIsSlicing(true);
+      setSliceProgress("Saving " + dur + "s live recording with FFmpeg & transcribing...");
+      try {
+        const res = await fetch("/api/live/slice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: streamInfo.url,
+            masterM3u8: streamInfo.masterM3u8,
+            start,
+            end,
+            title: streamInfo.title,
+            channel: streamInfo.channel,
+            videoId: streamInfo.videoId,
+            thumbnail: streamInfo.thumbnail
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to slice recorded segment.");
+        setLastCreatedClip(data);
+        setSessionClips(prev => [data, ...prev]);
+        toast?.("🎉 Captured " + dur + "s recording! Clip is ready.");
+      } catch (err) {
+        toast?.(err.message, true);
+      } finally {
+        setIsSlicing(false);
+        setSliceProgress("");
+      }
+    };
+
+    const handleCancelRecording = () => {
+      clearInterval(recordTimerRef.current);
+      setIsRecording(false);
+      setRecordSec(0);
+      toast?.("Live recording cancelled.");
+    };
 
     // Auto-load if initial URL provided in query
     useEffect(() => {
@@ -1462,13 +1658,50 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 addLabel: isSlicing ? "Processing..." : "⚡ Create Clip Now",
                 onTrimChange: (newTrim) => setTrim(newTrim),
                 onAddMoment: handleCreateLiveClip,
-                extraAction: jsx("button", {
-                  type: "button",
-                  className: "btn btn-ghost",
-                  title: "Find AI highlights in this selected time window",
-                  disabled: isSlicing,
-                  onClick: handleAnalyzeWindow,
-                  children: "🤖 Find AI Highlights"
+                onSyncToLive: handleSyncLiveHead,
+                extraAction: jsxs("div", {
+                  style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
+                  children: [
+                    !isRecording ? jsxs("button", {
+                      type: "button",
+                      className: "btn btn-record-live",
+                      title: "Start recording live broadcast in real time",
+                      disabled: isSlicing,
+                      onClick: handleStartRecording,
+                      children: [
+                        jsx("span", { className: "live-dot-pulse" }),
+                        "Record Live"
+                      ]
+                    }) : jsxs(Fragment, {
+                      children: [
+                        jsxs("button", {
+                          type: "button",
+                          className: "btn btn-record-live-active",
+                          title: "Stop recording and create clip",
+                          onClick: handleStopRecording,
+                          children: [
+                            jsx("span", { className: "rec-square" }),
+                            "Stop & Clip (" + formatSec(recordSec) + ")"
+                          ]
+                        }),
+                        jsx("button", {
+                          type: "button",
+                          className: "btn btn-ghost",
+                          style: { color: "#f87171" },
+                          onClick: handleCancelRecording,
+                          children: "Cancel"
+                        })
+                      ]
+                    }),
+                    jsx("button", {
+                      type: "button",
+                      className: "btn btn-ghost",
+                      title: "Find AI highlights in this selected time window",
+                      disabled: isSlicing || isRecording,
+                      onClick: handleAnalyzeWindow,
+                      children: "🤖 Find AI Highlights"
+                    })
+                  ]
                 })
               }),
 
