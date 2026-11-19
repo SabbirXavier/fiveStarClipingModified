@@ -88,6 +88,24 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         box-shadow: 0 4px 24px rgba(0,0,0,0.25);
         backdrop-filter: blur(12px);
       }
+      .trim-preview-player-wrap {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        max-height: 420px;
+        background: #000;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+        margin-bottom: 16px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      }
+      .trim-preview-player-wrap video,
+      .trim-preview-player-wrap iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block;
+      }
       .trim-top-row {
         display: flex;
         align-items: center;
@@ -370,9 +388,88 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
   }
 
   // ==========================================
+  // COMPONENT: Universal Moment Video Player
+  // Plays local videos, YouTube, Kick, and Twitch
+  // ==========================================
+  function MomentPreviewPlayer({ project, moment, startTime, endTime }) {
+    if (!project) return null;
+
+    const source = project.source || {};
+    const platform = (source.platform || "").toLowerCase();
+    const isFile = source.kind === "file";
+    const start = Number.isFinite(startTime) ? startTime : (moment?.start || 0);
+    const end = Number.isFinite(endTime) ? endTime : (moment?.end || start + 60);
+
+    // If local file
+    if (isFile && source.file) {
+      const fileUrl = `/files/projects/${project.id}/${source.file}#t=${start.toFixed(1)},${end.toFixed(1)}`;
+      return jsx("div", {
+        className: "trim-preview-player-wrap",
+        children: jsx("video", {
+          key: `${project.id}_${start.toFixed(1)}_${end.toFixed(1)}`,
+          controls: true,
+          autoPlay: true,
+          preload: "metadata",
+          src: fileUrl
+        })
+      });
+    }
+
+    // If Kick
+    if (platform === "kick" || (source.url && source.url.includes("kick.com"))) {
+      const channel = (source.channel || source.id || (source.url.match(/kick\.com\/([^/?#]+)/)?.[1] ?? "")).toLowerCase();
+      return jsx("div", {
+        className: "trim-preview-player-wrap",
+        children: jsx("iframe", {
+          key: `kick_${channel}`,
+          src: `https://player.kick.com/${encodeURIComponent(channel)}?autoplay=true&muted=false`,
+          title: moment ? `Moment ${moment.rank || 1}` : "Kick Stream Preview",
+          allow: "autoplay; fullscreen; picture-in-picture; encrypted-media",
+          allowFullScreen: true
+        })
+      });
+    }
+
+    // If Twitch
+    if (platform === "twitch" || (source.url && source.url.includes("twitch.tv"))) {
+      const channel = (source.channel || (source.url.match(/twitch\.tv\/([^/?#]+)/)?.[1] ?? "")).toLowerCase();
+      const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+      return jsx("div", {
+        className: "trim-preview-player-wrap",
+        children: jsx("iframe", {
+          key: `twitch_${channel}`,
+          src: `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${hostname}&autoplay=true&muted=false`,
+          title: moment ? `Moment ${moment.rank || 1}` : "Twitch Stream Preview",
+          allow: "autoplay; fullscreen; picture-in-picture",
+          allowFullScreen: true
+        })
+      });
+    }
+
+    // YouTube
+    const videoId = source.id || (source.url ? (source.url.match(/(?:v=|\/embed\/|youtu\.be\/)([\w-]{11})/)?.[1] || "") : "");
+    if (videoId) {
+      return jsx("div", {
+        className: "trim-preview-player-wrap",
+        children: jsx("iframe", {
+          key: `yt_${videoId}_${Math.floor(start)}_${Math.ceil(end)}`,
+          src: `https://www.youtube.com/embed/${videoId}?start=${Math.floor(start)}&end=${Math.ceil(end)}&autoplay=1&enablejsapi=1&rel=0`,
+          title: moment ? `Moment ${moment.rank || 1}` : "YouTube Preview",
+          allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
+          allowFullScreen: true
+        })
+      });
+    }
+
+    return null;
+  }
+
+  // ==========================================
   // COMPONENT 1: Universal Interactive Trim Slider
   // ==========================================
   function UniversalTrimSlider({
+    project = null,
+    moment = null,
     duration = 180,
     startTime = 0,
     endTime = 60,
@@ -496,7 +593,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         setPlayerPlayback(true);
         setIsPlayingLoop(true);
 
-        const durationMs = (end - start) * 1000;
+        const durationMs = Math.max(1000, (end - start) * 1000);
         clearInterval(loopTimerRef.current);
         loopTimerRef.current = setInterval(() => {
           seekActivePlayers(start);
@@ -521,6 +618,14 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       className: "universal-trim-box",
       children: jsxs(Fragment, {
         children: [
+          // Inline Video Preview Player when project is provided
+          project && jsx(MomentPreviewPlayer, {
+            project,
+            moment,
+            startTime: start,
+            endTime: end
+          }),
+
           // Header Row
           jsxs("div", {
             className: "trim-top-row",
@@ -534,7 +639,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                   }),
                   jsx("span", {
                     style: { fontSize: "13px", color: "#d4d4d8", fontWeight: 600 },
-                    children: isLive ? "Scrub live DVR & drag handles to clip" : "Drag handles to select exact moment"
+                    children: isLive ? "Scrub live DVR & drag handles to clip" : "Select moment above or drag handles below to adjust"
                   })
                 ]
               }),
@@ -871,7 +976,6 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         if (!res.ok) throw new Error(data.error || "Failed to analyze live window.");
 
         toast?.(`Found ${data.momentsCount} viral moments in this window! Opening...`);
-        // Navigate to the created project view
         window.location.hash = router.stream(data.projectId);
       } catch (err) {
         toast?.(err.message, true);
@@ -1097,6 +1201,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
 
   return {
     UniversalTrimSlider,
-    LiveClipperView
+    LiveClipperView,
+    MomentPreviewPlayer
   };
 }
