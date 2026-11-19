@@ -795,9 +795,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         if (!res.ok) throw new Error(data.error || "Failed to inspect live stream.");
 
         setStreamInfo(data);
-        const dur = data.duration || 3600;
-        const initialStart = Math.max(0, dur - 60);
-        setTrim({ start: initialStart, end: dur, duration: 60 });
+        const platform = (data.platform || "youtube").toLowerCase();
+        const dur = platform === "youtube" ? (data.duration || 7200) : 300;
+        const initialStart = platform === "youtube" ? Math.max(0, dur - 60) : 0;
+        const initialEnd = platform === "youtube" ? dur : 60;
+        setTrim({ start: initialStart, end: initialEnd, duration: 60 });
         toast?.(`Loaded stream: ${data.title}`);
       } catch (err) {
         toast?.(err.message, true);
@@ -882,10 +884,15 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     // Multi-Platform Player URL generator
     const getEmbedPlayerSrc = () => {
       if (!streamInfo) return "";
-      const platform = streamInfo.platform || "youtube";
+      const platform = (streamInfo.platform || "youtube").toLowerCase();
+      if (platform === "kick") {
+        const channel = (streamInfo.channel || streamInfo.url.match(/kick\.com\/([^/?#]+)/)?.[1] || "").toLowerCase();
+        return `https://player.kick.com/${encodeURIComponent(channel)}?autoplay=true&muted=false`;
+      }
       if (platform === "twitch") {
         const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
-        return `https://player.twitch.tv/?channel=${encodeURIComponent(streamInfo.channel)}&parent=${hostname}&autoplay=true`;
+        const channel = (streamInfo.channel || streamInfo.url.match(/twitch\.tv\/([^/?#]+)/)?.[1] || "").toLowerCase();
+        return `https://player.twitch.tv/?channel=${encodeURIComponent(channel)}&parent=${hostname}&autoplay=true&muted=false`;
       }
       // YouTube
       return `https://www.youtube.com/embed/${streamInfo.videoId}?autoplay=1&enablejsapi=1&rel=0`;
@@ -978,15 +985,17 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
               }),
 
               // Live Player Embed
-              jsx("div", {
+              jsxs("div", {
                 className: "live-player-frame",
-                children: jsx("iframe", {
-                  ref: playerRef,
-                  src: getEmbedPlayerSrc(),
-                  title: streamInfo.title,
-                  allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
-                  allowFullScreen: true
-                })
+                children: [
+                  jsx("iframe", {
+                    ref: playerRef,
+                    src: getEmbedPlayerSrc(),
+                    title: streamInfo.title,
+                    allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen",
+                    allowFullScreen: true
+                  })
+                ]
               }),
 
               // Universal Trim Slider for Live DVR

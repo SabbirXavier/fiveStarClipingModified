@@ -77,7 +77,8 @@ export function registerLiveRoutes(app, deps) {
       // Also get direct stream format url if available
       let streamUrl = null;
       try {
-        const urlRes = await ytDlpRunner(["-g", "--live-from-start", url], { timeout: 20e3 });
+        const flags = platform === "youtube" ? ["-g", "--live-from-start", url] : ["-g", url];
+        const urlRes = await ytDlpRunner(flags, { timeout: 20e3 });
         if (urlRes.code === 0 && urlRes.stdout.trim()) {
           streamUrl = urlRes.stdout.trim().split(/\r?\n/)[0].trim();
         }
@@ -144,18 +145,29 @@ export function registerLiveRoutes(app, deps) {
 
       console.log(`[Live Clipper] Slicing stream: ${url} from ${start.toFixed(2)}s to ${end.toFixed(2)}s into ${targetSrcFile}...`);
 
-      // Execute yt-dlp slice with --live-from-start
-      const sliceResult = await ytDlpRunner([
+      // Execute yt-dlp slice (use --live-from-start for YouTube DVR, standard download-sections for Kick/Twitch)
+      const ytArgs = [
         "--no-warnings",
-        "--force-overwrites",
-        "--live-from-start",
-        "--download-sections", `*${start.toFixed(2)}-${end.toFixed(2)}`,
+        "--force-overwrites"
+      ];
+      let sectionArg;
+      if (platform === "youtube") {
+        ytArgs.push("--live-from-start");
+        sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
+      } else {
+        // Kick & Twitch rolling streams: if start is offset by default 2hr buffer, normalize to 0..duration
+        const duration = Math.min(180, Math.max(3, end - start));
+        sectionArg = start >= 300 ? `*0-${duration.toFixed(2)}` : `*${start.toFixed(2)}-${end.toFixed(2)}`;
+      }
+      ytArgs.push(
+        "--download-sections", sectionArg,
         "-f", "bv*+ba/b",
         "-S", "res:1080,vcodec:h264,acodec:aac",
         "--merge-output-format", "mp4",
         "-o", path.join(cPath, "src.%(ext)s"),
         url
-      ], { timeout: 90e3 });
+      );
+      const sliceResult = await ytDlpRunner(ytArgs, { timeout: 90e3 });
 
       // Check if file exists (it could be src.mp4 or src.mkv)
       let actualSrc = null;
