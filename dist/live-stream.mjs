@@ -461,7 +461,13 @@ export function registerLiveRoutes(app, deps) {
         "-o", path.join(cPath, "src.%(ext)s"),
         targetDownloadUrl
       );
-      const sliceResult = await ytDlpRunner(ytArgs, { timeout: 90e3 });
+      let sliceResult = { code: 1, stderr: "" };
+      try {
+        sliceResult = await ytDlpRunner(ytArgs, { timeout: 180e3 });
+      } catch (dlpErr) {
+        console.warn(`[Live Clipper] yt-dlp slice warning or timeout:`, dlpErr.message);
+        sliceResult = { code: 1, stderr: dlpErr.message };
+      }
 
       // Check if file exists (it could be src.mp4 or src.mkv)
       let actualSrc = null;
