@@ -835,6 +835,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     onApplyChanges,
     onSeek,
     isLive = false,
+    bufferBounds = null,
     addLabel = "Add moment",
     applyLabel = "Apply Changes",
     onSyncToLive = null,
@@ -1001,6 +1002,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const rightPercent = (end / totalDuration) * 100;
     const playheadPercent = (playhead / totalDuration) * 100;
 
+    const hasBuffer = Boolean(isLive && bufferBounds && Number.isFinite(bufferBounds.bufferStart) && Number.isFinite(bufferBounds.bufferEnd) && bufferBounds.bufferEnd > bufferBounds.bufferStart);
+    const bufferLeftPercent = hasBuffer ? Math.max(0, Math.min(100, (bufferBounds.bufferStart / totalDuration) * 100)) : 0;
+    const bufferRightPercent = hasBuffer ? Math.max(0, Math.min(100, (bufferBounds.bufferEnd / totalDuration) * 100)) : 0;
+    const isSelectionCovered = Boolean(hasBuffer && (start >= bufferBounds.bufferStart - 1.5) && (end <= bufferBounds.bufferEnd + 1.5));
+
     return jsx("div", {
       className: "universal-trim-box",
       children: jsxs(Fragment, {
@@ -1031,8 +1037,62 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
               jsxs("div", {
-                style: { display: "flex", gap: "10px", alignItems: "center" },
+                style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" },
                 children: [
+                  isLive && bufferBounds && jsxs("div", {
+                    style: {
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      background: isSelectionCovered ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                      border: `1px solid ${isSelectionCovered ? "rgba(16, 185, 129, 0.4)" : "rgba(245, 158, 11, 0.4)"}`,
+                      borderRadius: "8px",
+                      padding: "3px 8px",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      color: isSelectionCovered ? "#86efac" : "#fde047"
+                    },
+                    children: [
+                      jsx("span", {
+                        style: {
+                          width: 7,
+                          height: 7,
+                          borderRadius: "50%",
+                          background: isSelectionCovered ? "#10b981" : "#f59e0b",
+                          display: "inline-block"
+                        }
+                      }),
+                      jsx("span", {
+                        children: hasBuffer
+                          ? `Buffer: ${Math.round(bufferBounds.bufferedSeconds)}s (${formatSec(bufferBounds.bufferStart)} - ${formatSec(bufferBounds.bufferEnd)})`
+                          : (bufferBounds.status === "starting" ? "Starting Local Buffer..." : "Buffer Ready")
+                      }),
+                      hasBuffer && !isSelectionCovered && jsx("button", {
+                        type: "button",
+                        onClick: () => {
+                          const dur = Math.min(60, Math.max(5, end - start));
+                          const newStart = Math.max(bufferBounds.bufferStart, bufferBounds.bufferEnd - dur);
+                          const newEnd = Math.min(bufferBounds.bufferEnd, newStart + dur);
+                          updateTrim(newStart, newEnd);
+                          seekActivePlayers(newStart);
+                          toast?.(`Clamped selection to buffered window [${formatSec(newStart)} - ${formatSec(newEnd)}]`);
+                        },
+                        style: {
+                          background: "#3b82f6",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "4px",
+                          padding: "1px 6px",
+                          fontSize: "10px",
+                          fontWeight: 800,
+                          cursor: "pointer",
+                          marginLeft: "4px"
+                        },
+                        title: "Clamp trim handles within the locally buffered window",
+                        children: "Clamp to Buffer"
+                      })
+                    ]
+                  }),
                   isLive && jsxs("button", {
                     type: "button",
                     className: "btn-live-sync",
@@ -1068,12 +1128,32 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
               setDragging("track");
             },
             children: [
+              // Local Buffer Range Highlight (when live and buffer active)
+              hasBuffer && jsx("div", {
+                className: "trim-buffer-highlight",
+                style: {
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: `${bufferLeftPercent}%`,
+                  width: `${Math.max(0.6, bufferRightPercent - bufferLeftPercent)}%`,
+                  background: "rgba(16, 185, 129, 0.22)",
+                  borderTop: "2px solid #10b981",
+                  borderBottom: "2px solid #10b981",
+                  pointerEvents: "none",
+                  zIndex: 1,
+                  borderRadius: "2px"
+                },
+                title: `Local Segment Buffer: ${formatSec(bufferBounds.bufferStart)} - ${formatSec(bufferBounds.bufferEnd)} (${Math.round(bufferBounds.bufferedSeconds)}s)`
+              }),
+
               // Highlight band
               jsx("div", {
                 className: "trim-range-highlight",
                 style: {
                   left: `${leftPercent}%`,
-                  width: `${Math.max(1, rightPercent - leftPercent)}%`
+                  width: `${Math.max(1, rightPercent - leftPercent)}%`,
+                  zIndex: 2
                 }
               }),
 
@@ -1290,6 +1370,8 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [translateToEn, setTranslateToEn] = useState(false);
     const [isLiveSync, setIsLiveSync] = useState(true);
     const [liveHead, setLiveHead] = useState(0);
+    const [bufferBounds, setBufferBounds] = useState(() => streamInfo?.bufferStatus || null);
+    const bufferPollTimerRef = useRef(null);
 
     useEffect(() => {
       if (streamInfo?.title) {
@@ -1299,7 +1381,49 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       if (streamInfo?.duration) {
         setLiveHead(streamInfo.duration);
       }
+      if (streamInfo?.bufferStatus) {
+        setBufferBounds(streamInfo.bufferStatus);
+      }
     }, [streamInfo]);
+
+    // Synchronize Rolling Segment Buffer & Poll available [bufferStart, bufferEnd] bounds
+    useEffect(() => {
+      if (!streamInfo?.url || !streamInfo?.isLive) return;
+
+      const pollBuffer = async () => {
+        try {
+          const res = await fetch(`/api/live/buffer/status?url=${encodeURIComponent(streamInfo.url)}&from=${trim.start}&to=${trim.end}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok) {
+              setBufferBounds(data);
+            }
+          }
+        } catch {}
+      };
+
+      pollBuffer();
+      bufferPollTimerRef.current = setInterval(pollBuffer, 2500);
+
+      return () => {
+        if (bufferPollTimerRef.current) clearInterval(bufferPollTimerRef.current);
+      };
+    }, [streamInfo?.url, streamInfo?.isLive, trim.start, trim.end]);
+
+    // Clean up background buffer service when user switches stream URL or component unmounts
+    useEffect(() => {
+      const activeUrl = streamInfo?.url;
+      return () => {
+        if (activeUrl) {
+          fetch("/api/live/buffer/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: activeUrl }),
+            keepalive: true
+          }).catch(() => {});
+        }
+      };
+    }, [streamInfo?.url]);
 
     // Live Edge Real-Time Ticker: continuously tracks broadcast progress
     useEffect(() => {
@@ -1456,6 +1580,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         if (!res.ok) throw new Error(data.error || "Failed to inspect live stream.");
 
         setStreamInfo(data);
+        if (data.bufferStatus) setBufferBounds(data.bufferStatus);
         const platform = (data.platform || "youtube").toLowerCase();
         const dur = data.duration || 7200;
         setLiveHead(dur);
@@ -1479,7 +1604,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       const dur = Math.max(3, Math.min(180, trim.duration || (trim.end - trim.start) || 60));
 
       setIsSlicing(true);
-      setSliceProgress("Fetching live stream segment & transcribing with Whisper (may take 20-40s for HD/1440p)...");
+      const isLocallyBuffered = bufferBounds && (trim.start >= bufferBounds.bufferStart - 1.5) && (trim.end <= bufferBounds.bufferEnd + 1.5);
+      setSliceProgress(isLocallyBuffered
+        ? "Extracting frame-accurate clip from local segment buffer (re-encoding x264+aac)..."
+        : "Fetching live stream segment & transcribing with Whisper (may take 20-40s for HD/1440p)..."
+      );
       try {
         const currentHead = liveHead || streamInfo.duration || 7200;
         const rewoundSec = isLiveSync ? 0 : Math.max(0, currentHead - trim.start);
@@ -1489,6 +1618,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           body: JSON.stringify({
             url: streamInfo.url,
             masterM3u8: streamInfo.masterM3u8,
+            sessionId: bufferBounds?.sessionId,
             isLiveHead: isLiveSync,
             fromLive: isLiveSync ? dur : undefined,
             start: trim.start,
@@ -1531,6 +1661,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           body: JSON.stringify({
             url: streamInfo.url,
             masterM3u8: streamInfo.masterM3u8,
+            sessionId: bufferBounds?.sessionId,
             isLiveHead: true,
             fromLive: sec,
             start: Math.max(0, currentHead - sec),
@@ -1754,6 +1885,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 startTime: trim.start,
                 endTime: trim.end,
                 isLive: true,
+                bufferBounds,
                 addLabel: isSlicing ? "Processing..." : (isLiveSync ? "⚡ Create Clip Now (Live)" : "⚡ Create Clip from Selection"),
                 onTrimChange: (newTrim) => {
                   setTrim(newTrim);

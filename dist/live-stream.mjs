@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
+import { LiveBufferManager } from "./live-buffer.mjs";
 
 // Memory cache for Kick live stream masters and active channels
 const kickStreamCache = new Map();
@@ -216,6 +217,8 @@ export function registerLiveRoutes(app, deps) {
     getBinPath
   } = deps;
 
+  const liveBufferManager = new LiveBufferManager(deps);
+
   // Helper to format seconds as mm:ss or hh:mm:ss
   function formatTime(sec) {
     const s = Math.max(0, Math.floor(sec));
@@ -232,6 +235,85 @@ export function registerLiveRoutes(app, deps) {
     if (u.includes("kick.com")) return "kick";
     return "youtube";
   }
+
+  // ==========================================
+  // Managed Rolling Segment Buffer Routes
+  // ==========================================
+
+  // Start or connect to rolling segment buffer worker
+  app.post("/api/live/buffer/start", async (req, res) => {
+    try {
+      const url = String(req.body?.url || "").trim();
+      if (!url) return res.status(400).json({ error: "Stream URL is required" });
+      const streamInfo = req.body?.streamInfo || {};
+      const quality = String(req.body?.quality || "best").trim();
+      const retentionMinutes = Number(req.body?.retentionMinutes) || 30;
+
+      const session = liveBufferManager.getOrCreateSession({
+        url,
+        streamInfo,
+        quality,
+        retentionMinutes
+      });
+
+      return res.json({
+        ok: true,
+        ...session.getStatus()
+      });
+    } catch (err) {
+      console.error("[Live Buffer API] Start error:", err);
+      return res.status(500).json({ error: err.message || "Failed to start buffer service" });
+    }
+  });
+
+  // Query rolling buffer status & range coverage
+  app.get("/api/live/buffer/status", (req, res) => {
+    try {
+      const url = String(req.query?.url || "").trim();
+      const sessionId = String(req.query?.sessionId || "").trim();
+      const from = req.query?.from !== undefined ? Number(req.query.from) : undefined;
+      const to = req.query?.to !== undefined ? Number(req.query.to) : undefined;
+
+      let session = null;
+      if (sessionId) session = liveBufferManager.getSession(sessionId);
+      if (!session && url) session = liveBufferManager.findSessionByUrl(url);
+
+      if (!session) {
+        return res.json({
+          ok: true,
+          status: "idle",
+          bufferStart: 0,
+          bufferEnd: 0,
+          bufferedSeconds: 0,
+          segmentsCount: 0,
+          isCovered: false
+        });
+      }
+
+      const status = session.getStatus();
+      const isCovered = (Number.isFinite(from) && Number.isFinite(to)) ? session.isRangeCovered(from, to) : false;
+
+      return res.json({
+        ok: true,
+        ...status,
+        isCovered
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err.message || "Failed to query buffer status" });
+    }
+  });
+
+  // Stop rolling buffer worker & clean up segment cache
+  app.post("/api/live/buffer/stop", (req, res) => {
+    try {
+      const url = String(req.body?.url || "").trim();
+      const sessionId = String(req.body?.sessionId || "").trim();
+      const stopped = liveBufferManager.stopSession(sessionId || url);
+      return res.json({ ok: true, stopped });
+    } catch (err) {
+      return res.status(500).json({ error: err.message || "Failed to stop buffer service" });
+    }
+  });
 
   // 1. Check live stream info and get direct manifest
   app.post("/api/live/info", async (req, res) => {
@@ -358,6 +440,29 @@ export function registerLiveRoutes(app, deps) {
         );
       }
 
+      // Automatically arm background rolling segment buffer worker for live streams
+      let initialBufferStatus = null;
+      if (isLiveNow) {
+        try {
+          const session = liveBufferManager.getOrCreateSession({
+            url: meta.webpage_url || url,
+            streamInfo: {
+              title,
+              channel,
+              duration,
+              isLive: true,
+              platform,
+              videoId,
+              releaseTimestamp: Number(meta.release_timestamp) || Number(meta.timestamp) || 0,
+              masterM3u8: streamUrl
+            }
+          });
+          initialBufferStatus = session.getStatus();
+        } catch (bufErr) {
+          console.warn("[Live Clipper] Auto buffer start notice:", bufErr.message);
+        }
+      }
+
       return res.json({
         ok: true,
         isLive: isLiveNow,
@@ -370,7 +475,8 @@ export function registerLiveRoutes(app, deps) {
         duration,
         url: meta.webpage_url || url,
         streamUrl,
-        qualities
+        qualities,
+        bufferStatus: initialBufferStatus
       });
     } catch (err) {
       console.error("Live info error:", err);
@@ -586,10 +692,25 @@ export function registerLiveRoutes(app, deps) {
 
       let actualSrc = null;
 
-      // 1. YouTube Live DVR sequence engine:
+      // 1. Managed Rolling Local Buffer Engine (frame-accurate, zero seek race condition)
+      const bufSession = liveBufferManager.findSessionByUrl(url) || (req.body?.sessionId ? liveBufferManager.getSession(req.body.sessionId) : null);
+      if (bufSession && bufSession.isRangeCovered(start, end)) {
+        console.log(`[Live Clipper] Range [${start.toFixed(1)}s - ${end.toFixed(1)}s] is covered by active local buffer (${bufSession.id})! Extracting frame-accurate clip...`);
+        try {
+          const bufRes = await bufSession.sliceRange(start, end, targetSrcFile);
+          if (bufRes && fs.existsSync(targetSrcFile) && fs.statSync(targetSrcFile).size >= 5000) {
+            actualSrc = targetSrcFile;
+            console.log(`[Live Clipper] Frame-accurate local buffer slice succeeded: ${actualSrc} (${fs.statSync(actualSrc).size} bytes)`);
+          }
+        } catch (bufErr) {
+          console.warn("[Live Clipper] Local buffer slice notice, falling back to sequence/yt-dlp:", bufErr.message);
+        }
+      }
+
+      // 2. YouTube Live DVR sequence engine:
       // Bypasses the rolling 15-minute manifest limit of yt-dlp/ffmpeg and grabs the exact
       // historical sequence chunks from YouTube's 2-4 hour CDN buffer in 3-5 seconds.
-      if (platform === "youtube") {
+      if (!actualSrc && platform === "youtube") {
         try {
           let rewoundSec = null;
           if (Number.isFinite(Number(req.body?.rewoundSec))) {
