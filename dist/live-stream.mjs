@@ -385,7 +385,10 @@ export function registerLiveRoutes(app, deps) {
         "--no-warnings",
         "--force-overwrites",
         "--js-runtimes", "node",
-        "--extractor-args", "youtube:formats=incomplete"
+        "--extractor-args", "youtube:formats=incomplete",
+        "--socket-timeout", "30",
+        "--retries", "5",
+        "--fragment-retries", "5"
       ];
       if (ffmpegBin) {
         ytArgs.push("--ffmpeg-location", path.dirname(ffmpegBin));
@@ -396,7 +399,7 @@ export function registerLiveRoutes(app, deps) {
       let trimDetail = `Trimmed from live stream (${formatTime(start)} - ${formatTime(end)})`;
 
       if (platform === "youtube") {
-        const isFromLiveHead = req.body?.isLiveHead === true || typeof req.body?.fromLive === "number";
+        const isFromLiveHead = req.body?.isLiveHead === true;
         if (isFromLiveHead) {
           const dur = Math.max(3, Math.min(180, Number(req.body?.fromLive) || (end - start) || 60));
           sectionArg = `*-${dur.toFixed(1)}--1.0`;
@@ -404,30 +407,18 @@ export function registerLiveRoutes(app, deps) {
           trimDetail = `Captured live stream moment (last ${Math.round(dur)}s before live)`;
           console.log(`[Live Clipper] Slicing YouTube live head: last ${dur}s (section: ${sectionArg})`);
         } else if (start < 0 || end <= 0) {
-          const s = Math.max(-880, start);
+          const s = Math.max(-43200, start);
           const e = Math.min(-1, end);
           sectionArg = `*${s.toFixed(1)}-${e.toFixed(1)}`;
           trimLabel = `Live DVR cut (${Math.abs(Math.round(s))}s to ${Math.abs(Math.round(e))}s ago)`;
           trimDetail = `Trimmed live DVR buffer (${Math.abs(Math.round(s))}s to ${Math.abs(Math.round(e))}s before live)`;
           console.log(`[Live Clipper] Slicing YouTube negative offset: ${sectionArg}`);
         } else {
-          const streamDuration = Number(req.body?.streamDuration) || 0;
-          if (streamDuration > 0 && end <= streamDuration + 60) {
-            const dur = Math.max(3, Math.min(180, end - start));
-            let offsetEnd = Math.min(-1, end - streamDuration);
-            let offsetStart = offsetEnd - dur;
-            if (offsetStart < -880) {
-              offsetStart = -880;
-              offsetEnd = offsetStart + dur;
-            }
-            sectionArg = `*${offsetStart.toFixed(1)}-${offsetEnd.toFixed(1)}`;
-            trimLabel = `Live DVR cut (${Math.abs(Math.round(offsetStart))}s to ${Math.abs(Math.round(offsetEnd))}s ago)`;
-            trimDetail = `Trimmed live DVR buffer (${Math.abs(Math.round(offsetStart))}s to ${Math.abs(Math.round(offsetEnd))}s before live)`;
-            console.log(`[Live Clipper] Slicing YouTube scrubbed DVR offset: ${sectionArg} (scrub: ${formatTime(start)} - ${formatTime(end)}, liveHead: ${formatTime(streamDuration)})`);
-          } else {
-            sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
-            console.log(`[Live Clipper] Slicing YouTube standard: ${sectionArg}`);
-          }
+          // Scrubbed / rewound YouTube DVR: download the exact selected range using absolute timestamps!
+          sectionArg = `*${start.toFixed(2)}-${end.toFixed(2)}`;
+          trimLabel = `Live DVR cut (${formatTime(start)} - ${formatTime(end)})`;
+          trimDetail = `Trimmed live DVR buffer from ${formatTime(start)} to ${formatTime(end)}`;
+          console.log(`[Live Clipper] Slicing YouTube scrubbed DVR: ${sectionArg} (${formatTime(start)} - ${formatTime(end)})`);
         }
       } else if (platform === "kick" && targetDownloadUrl.includes("stream.kick.com")) {
         // Kick full DVR master playlist: slice exact timestamps from the recorded stream!
@@ -463,7 +454,7 @@ export function registerLiveRoutes(app, deps) {
       );
       let sliceResult = { code: 1, stderr: "" };
       try {
-        sliceResult = await ytDlpRunner(ytArgs, { timeout: 180e3 });
+        sliceResult = await ytDlpRunner(ytArgs, { timeout: 300e3 });
       } catch (dlpErr) {
         console.warn(`[Live Clipper] yt-dlp slice warning or timeout:`, dlpErr.message);
         sliceResult = { code: 1, stderr: dlpErr.message };
@@ -488,7 +479,13 @@ export function registerLiveRoutes(app, deps) {
       if (!actualSrc && ffmpegBin) {
         console.log(`[Live Clipper] yt-dlp slice did not produce file, trying direct FFmpeg HLS slice fallback...`);
         try {
-          const urlRes = await ytDlpRunner(["-g", targetDownloadUrl], { timeout: 25e3 });
+          const urlRes = await ytDlpRunner([
+            "--no-warnings",
+            "--js-runtimes", "node",
+            "--extractor-args", "youtube:formats=incomplete",
+            "-g",
+            targetDownloadUrl
+          ], { timeout: 35e3 });
           if (urlRes.code === 0 && urlRes.stdout.trim()) {
             const streamUrls = urlRes.stdout.trim().split(/\r?\n/).filter(l => l.startsWith("http"));
             const duration = Math.max(3, end - start);

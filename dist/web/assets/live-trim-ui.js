@@ -1477,7 +1477,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       const dur = Math.max(3, Math.min(180, trim.duration || (trim.end - trim.start) || 60));
 
       setIsSlicing(true);
-      setSliceProgress("Extracting live segment with FFmpeg & transcribing with Whisper (approx 5-8s)...");
+      setSliceProgress("Fetching live stream segment & transcribing with Whisper (may take 20-40s for HD/1440p)...");
       try {
         const currentHead = liveHead || streamInfo.duration || 7200;
         const res = await fetch("/api/live/slice", {
@@ -1487,7 +1487,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             url: streamInfo.url,
             masterM3u8: streamInfo.masterM3u8,
             isLiveHead: isLiveSync,
-            fromLive: isLiveSync ? dur : (currentHead > 0 && trim.end < currentHead ? Math.max(1, currentHead - trim.end) : undefined),
+            fromLive: isLiveSync ? dur : undefined,
             start: trim.start,
             end: trim.end,
             streamDuration: currentHead,
