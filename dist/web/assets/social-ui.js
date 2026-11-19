@@ -322,7 +322,20 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
             jsxs("div", {
               className: "row-between",
               children: [
-                jsx("strong", { style: { fontSize: 15 }, children: "YouTube direct upload (API v3)" }),
+                jsxs("div", {
+                  style: { display: "flex", alignItems: "center", gap: 10 },
+                  children: [
+                    jsx("strong", { style: { fontSize: 15 }, children: "YouTube direct upload (API v3)" }),
+                    jsx("a", {
+                      href: "/youtube-guide.html",
+                      target: "_blank",
+                      rel: "noreferrer",
+                      className: "btn btn-small",
+                      style: { fontSize: 11.5, padding: "2px 8px", textDecoration: "none" },
+                      children: "📖 Setup Guide ↗",
+                    }),
+                  ],
+                }),
                 yt.connected
                   ? jsxs("span", {
                       className: "status status-good",
@@ -443,7 +456,20 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
             jsxs("div", {
               className: "row-between",
               children: [
-                jsx("strong", { style: { fontSize: 15 }, children: "Instagram Reels direct upload (Graph API)" }),
+                jsxs("div", {
+                  style: { display: "flex", alignItems: "center", gap: 10 },
+                  children: [
+                    jsx("strong", { style: { fontSize: 15 }, children: "Instagram Reels direct upload (Graph API)" }),
+                    jsx("a", {
+                      href: "/instagram-guide.html",
+                      target: "_blank",
+                      rel: "noreferrer",
+                      className: "btn btn-small",
+                      style: { fontSize: 11.5, padding: "2px 8px", textDecoration: "none" },
+                      children: "📖 Setup Guide ↗",
+                    }),
+                  ],
+                }),
                 ig.connected
                   ? jsxs("span", {
                       className: "status status-good",
@@ -1304,21 +1330,56 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
             jsxs("div", {
               style: cardStyle,
               children: [
-                jsxs("button", {
-                  type: "button",
-                  style: headerBtnStyle,
-                  onClick: () => setYtOpen((v) => !v),
+                jsxs("div", {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 16px",
+                    flexWrap: "wrap",
+                    gap: 10,
+                  },
                   children: [
-                    jsxs("span", {
-                      style: { display: "flex", alignItems: "center", gap: 8 },
+                    jsxs("div", {
+                      style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1 },
+                      onClick: () => setYtOpen((v) => !v),
                       children: [
-                        jsx("span", { style: { fontSize: 17 }, children: "🔴" }),
-                        "How to set up YouTube Data API v3 (Direct Shorts Upload)",
+                        jsx("span", { style: { fontSize: 18 }, children: "🔴" }),
+                        jsxs("div", {
+                          children: [
+                            jsx("span", {
+                              style: { fontSize: 14.5, fontWeight: 600, color: "var(--text, #f1f5f9)" },
+                              children: "YouTube Shorts Setup Guide (Data API v3)",
+                            }),
+                            jsx("p", {
+                              className: "note",
+                              style: { margin: "2px 0 0 0", fontSize: 12 },
+                              children: "Configure Google Cloud OAuth 2.0 Web Client to upload Shorts directly.",
+                            }),
+                          ],
+                        }),
                       ],
                     }),
-                    jsx("span", {
-                      style: { fontSize: 13, color: "var(--text-muted, #94a3b8)" },
-                      children: ytOpen ? "▲ Hide" : "▼ Show steps",
+                    jsxs("div", {
+                      className: "row",
+                      style: { gap: 8, alignItems: "center" },
+                      children: [
+                        jsx("a", {
+                          href: "/youtube-guide.html",
+                          target: "_blank",
+                          rel: "noreferrer",
+                          className: "btn btn-small btn-primary",
+                          style: { textDecoration: "none", fontSize: 12, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5 },
+                          children: ["Open Guide in new tab ↗"],
+                        }),
+                        jsx("button", {
+                          type: "button",
+                          className: "btn btn-small",
+                          onClick: () => setYtOpen((v) => !v),
+                          style: { fontSize: 12, padding: "5px 10px" },
+                          children: ytOpen ? "▲ Hide" : "▼ Preview steps",
+                        }),
+                      ],
                     }),
                   ],
                 }),
@@ -1460,21 +1521,56 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
             jsxs("div", {
               style: cardStyle,
               children: [
-                jsxs("button", {
-                  type: "button",
-                  style: headerBtnStyle,
-                  onClick: () => setIgOpen((v) => !v),
+                jsxs("div", {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 16px",
+                    flexWrap: "wrap",
+                    gap: 10,
+                  },
                   children: [
-                    jsxs("span", {
-                      style: { display: "flex", alignItems: "center", gap: 8 },
+                    jsxs("div", {
+                      style: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", flex: 1 },
+                      onClick: () => setIgOpen((v) => !v),
                       children: [
-                        jsx("span", { style: { fontSize: 17 }, children: "🟣" }),
-                        "How to set up Instagram Graph API (Direct Reels Upload)",
+                        jsx("span", { style: { fontSize: 18 }, children: "🟣" }),
+                        jsxs("div", {
+                          children: [
+                            jsx("span", {
+                              style: { fontSize: 14.5, fontWeight: 600, color: "var(--text, #f1f5f9)" },
+                              children: "Instagram Reels Setup Guide (Graph API)",
+                            }),
+                            jsx("p", {
+                              className: "note",
+                              style: { margin: "2px 0 0 0", fontSize: 12 },
+                              children: "Configure Meta Graph API User Token to publish Reels directly.",
+                            }),
+                          ],
+                        }),
                       ],
                     }),
-                    jsx("span", {
-                      style: { fontSize: 13, color: "var(--text-muted, #94a3b8)" },
-                      children: igOpen ? "▲ Hide" : "▼ Show steps",
+                    jsxs("div", {
+                      className: "row",
+                      style: { gap: 8, alignItems: "center" },
+                      children: [
+                        jsx("a", {
+                          href: "/instagram-guide.html",
+                          target: "_blank",
+                          rel: "noreferrer",
+                          className: "btn btn-small btn-primary",
+                          style: { textDecoration: "none", fontSize: 12, padding: "5px 12px", display: "inline-flex", alignItems: "center", gap: 5 },
+                          children: ["Open Guide in new tab ↗"],
+                        }),
+                        jsx("button", {
+                          type: "button",
+                          className: "btn btn-small",
+                          onClick: () => setIgOpen((v) => !v),
+                          style: { fontSize: 12, padding: "5px 10px" },
+                          children: igOpen ? "▲ Hide" : "▼ Preview steps",
+                        }),
+                      ],
                     }),
                   ],
                 }),

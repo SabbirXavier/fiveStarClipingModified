@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Shorts Direct Upload (Data API v3) Setup Guide</title>
+  <style>
+    :root {
+      --bg-primary: #130e1c;
+      --bg-card: #1b1426;
+      --bg-input: #231a30;
+      --border-color: #382a4d;
+      --accent-red: #ef4444;
+      --accent-red-hover: #f87171;
+      --text-main: #f3effa;
+      --text-muted: #9e93b3;
+      --code-bg: #2a1f3a;
+      --success: #34d399;
+      --warning: #fbbf24;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .badge {
+      display: inline-block;
+      background-color: var(--accent-red);
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 0.8rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      vertical-align: middle;
+      margin-left: 0.4rem;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .step-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .step-num {
+      background-color: var(--accent-red);
+      color: #ffffff;
+      font-weight: 800;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+
+    h2 {
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+
+    p {
+      margin-bottom: 0.85rem;
+      color: #dfd8eb;
+      font-size: 0.95rem;
+    }
+
+    ol, ul {
+      margin-left: 1.4rem;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+      color: #dfd8eb;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    a {
+      color: var(--accent-red);
+      text-decoration: none;
+      font-weight: 500;
+      border-bottom: 1px dashed rgba(239, 68, 68, 0.5);
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    a:hover {
+      color: var(--accent-red-hover);
+      border-bottom-color: var(--accent-red-hover);
+    }
+
+    code {
+      background-color: var(--code-bg);
+      color: #fca5a5;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+    }
+
+    .uri-box {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin: 0.85rem 0;
+    }
+
+    .uri-text {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #fca5a5;
+      font-size: 0.9rem;
+      word-break: break-all;
+    }
+
+    .copy-btn {
+      background-color: var(--code-bg);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 0.35rem 0.75rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .copy-btn:hover {
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+
+    .copy-btn.copied {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    .callout {
+      background-color: rgba(251, 191, 36, 0.08);
+      border-left: 3px solid var(--warning);
+      padding: 0.85rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .callout strong {
+      color: var(--warning);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.75rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      background-color: var(--bg-input);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    td {
+      color: #dfd8eb;
+    }
+
+    .req-tag {
+      color: var(--accent-red);
+      font-weight: 600;
+      font-size: 0.8rem;
+    }
+
+    .opt-tag {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem;">
+        <a href="/" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; color:#9e93b3; border:none; text-decoration:none;">
+          <span style="font-size:1.1rem;">←</span> Back to Fivestar
+        </a>
+        <a href="/instagram-guide.html" style="font-size:0.85rem; padding:0.35rem 0.85rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+          <span>🟣</span> View Instagram Guide
+        </a>
+      </div>
+      <h1>YouTube Shorts Direct Upload <span class="badge">Data API v3</span></h1>
+      <p class="subtitle">Complete step-by-step configuration guide to create Google Cloud OAuth 2.0 Web Client credentials and connect your YouTube channel.</p>
+    </header>
+
+    <!-- STEP 1 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">1</div>
+        <h2>Create or Select a Google Cloud Project</h2>
+      </div>
+      <p>Google Cloud organizes all API permissions and client keys inside cloud projects.</p>
+      <ol>
+        <li>Sign in to <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener noreferrer">Google Cloud Console &rarr; New Project</a>.</li>
+        <li>Enter a <strong>Project name</strong> (e.g. <em>Fivestar Shorts Publisher</em>) and leave the Organization as <em>No organization</em>.</li>
+        <li>Click <strong>Create</strong> and wait a few seconds for the project to provision.</li>
+        <li>Make sure your newly created project is selected in the top project dropdown bar.</li>
+      </ol>
+    </section>
+
+    <!-- STEP 2 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">2</div>
+        <h2>Enable the YouTube Data API v3</h2>
+      </div>
+      <p>You must enable the YouTube Data API v3 on your project so Google permits video uploads.</p>
+      <ol>
+        <li>Open the <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer">YouTube Data API v3 in API Library</a>.</li>
+        <li>Verify that your project from Step 1 is selected at the top.</li>
+        <li>Click the blue <strong>Enable</strong> button. Once enabled, you will be redirected to the API dashboard.</li>
+      </ol>
+    </section>
+
+    <!-- STEP 3 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">3</div>
+        <h2>Configure the OAuth Consent Screen &amp; Add Test Users</h2>
+      </div>
+      <p>Before creating credentials, Google requires configuring an OAuth Consent Screen and declaring authorized Test Users.</p>
+      <ol>
+        <li>Go to <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener noreferrer">APIs &amp; Services &rarr; OAuth consent screen</a>.</li>
+        <li>Select <strong>External</strong> as the User Type, then click <strong>Create</strong>.</li>
+        <li>Fill in the required fields:
+          <ul>
+            <li><strong>App name:</strong> <em>Fivestar</em> (or your channel name)</li>
+            <li><strong>User support email:</strong> Select your Google email address</li>
+            <li><strong>Developer contact information:</strong> Enter your email address</li>
+          </ul>
+        </li>
+        <li>Click <strong>Save and Continue</strong> through the <em>Scopes</em> page (no custom scopes needed).</li>
+        <li>On the <strong>Test users</strong> screen, click <strong>+ Add Users</strong> and enter the exact Google email address associated with your YouTube channel.</li>
+        <li>Click <strong>Add</strong>, then click <strong>Save and Continue</strong>.</li>
+      </ol>
+
+      <div class="callout">
+        <strong>Important (Avoid "App Not Verified" Block):</strong> If you do not add your channel's Google email under <strong>Test users</strong>, Google will block your sign-in with a <code>403 access_denied</code> error because your personal OAuth app is in Testing mode.
+      </div>
+    </section>
+
+    <!-- STEP 4 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">4</div>
+        <h2>Create OAuth 2.0 Web Client Credentials</h2>
+      </div>
+      <p>Now generate your Client ID and Client Secret with the local Fivestar redirect URI.</p>
+      <ol>
+        <li>Go to <a href="https://console.cloud.google.com/apis/credentials/oauthclient" target="_blank" rel="noopener noreferrer">APIs &amp; Services &rarr; Credentials &rarr; Create Credentials &rarr; OAuth client ID</a>.</li>
+        <li>In the <strong>Application type</strong> dropdown, select <strong>Web application</strong>.</li>
+        <li>Set the <strong>Name</strong> to <em>Fivestar Local Client</em>.</li>
+        <li>Scroll down to <strong>Authorized redirect URIs</strong>, click <strong>+ Add URI</strong>, and paste the exact URI below:</li>
+      </ol>
+
+      <div class="uri-box">
+        <span class="uri-text" id="uri-val">http://127.0.0.1:8765/oauth/youtube/callback</span>
+        <button class="copy-btn" onclick="copyText('http://127.0.0.1:8765/oauth/youtube/callback', this)">Copy URI</button>
+      </div>
+
+      <ol start="5">
+        <li>Click <strong>Create</strong>. A modal will pop up displaying your <strong>Client ID</strong> and <strong>Client Secret</strong>.</li>
+        <li>Copy both values into your clipboard or keep the tab open for Step 5.</li>
+      </ol>
+    </section>
+
+    <!-- STEP 5 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">5</div>
+        <h2>Fill In Fivestar Settings &amp; Connect Channel</h2>
+      </div>
+      <p>Open Fivestar <strong>Settings (⚙️)</strong> in the top right corner and paste your credentials:</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Setting Field</th>
+            <th>Status</th>
+            <th>Value from Google Cloud</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>YouTube OAuth Client ID</strong></td>
+            <td><span class="req-tag">Required</span></td>
+            <td>The long string ending in <code>.apps.googleusercontent.com</code> copied from Step 4.</td>
+          </tr>
+          <tr>
+            <td><strong>YouTube OAuth Client Secret</strong></td>
+            <td><span class="req-tag">Required</span></td>
+            <td>The secret string starting with <code>GOCSPX-...</code> copied from Step 4.</td>
+          </tr>
+          <tr>
+            <td><strong>Authorized redirect URI</strong></td>
+            <td><span class="opt-tag">Pre-filled</span></td>
+            <td>Displays <code>http://127.0.0.1:8765/oauth/youtube/callback</code> for reference.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top: 1rem;">Click <strong>Connect YouTube channel</strong>. A Google popup will open: select your channel account, click <strong>Continue</strong> through the testing warning, and approve permissions. Once complete, your channel name and handle will link automatically!</p>
+    </section>
+
+    <!-- STEP 6 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">6</div>
+        <h2>Quick Troubleshooting</h2>
+      </div>
+      <ul>
+        <li><strong>"Access blocked: This app has not been verified" (403):</strong> You must add your Google email address under <strong>Test users</strong> in Step 3 (<a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noopener noreferrer">OAuth consent screen</a>).</li>
+        <li><strong>"Redirect URI mismatch" (400):</strong> Verify that the redirect URI in Google Cloud Console is exactly <code>http://127.0.0.1:8765/oauth/youtube/callback</code>. Make sure it uses <code>127.0.0.1</code> and not <code>localhost</code>, and has no trailing slash.</li>
+        <li><strong>YouTube API Daily Quota:</strong> Google provides a free default quota of 10,000 units/day. Video uploads consume 1,600 units each (approximately 6 Shorts uploads per day on the free tier).</li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const original = btn.textContent;
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.classList.remove("copied");
+        }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>

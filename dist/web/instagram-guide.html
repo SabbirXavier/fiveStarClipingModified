@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Instagram Reels Direct Upload (Graph API) Setup Guide</title>
+  <style>
+    :root {
+      --bg-primary: #130e1c;
+      --bg-card: #1b1426;
+      --bg-input: #231a30;
+      --border-color: #382a4d;
+      --accent-pink: #e55992;
+      --accent-pink-hover: #f26ca3;
+      --text-main: #f3effa;
+      --text-muted: #9e93b3;
+      --code-bg: #2a1f3a;
+      --success: #34d399;
+      --warning: #fbbf24;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      line-height: 1.65;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .badge {
+      display: inline-block;
+      background-color: var(--accent-pink);
+      color: #130e1c;
+      font-weight: 700;
+      font-size: 0.8rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      vertical-align: middle;
+      margin-left: 0.4rem;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .step-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .step-num {
+      background-color: var(--accent-pink);
+      color: #130e1c;
+      font-weight: 800;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+
+    h2 {
+      font-size: 1.2rem;
+      font-weight: 600;
+    }
+
+    p {
+      margin-bottom: 0.85rem;
+      color: #dfd8eb;
+      font-size: 0.95rem;
+    }
+
+    ol, ul {
+      margin-left: 1.4rem;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+      color: #dfd8eb;
+    }
+
+    li {
+      margin-bottom: 0.5rem;
+    }
+
+    a {
+      color: var(--accent-pink);
+      text-decoration: none;
+      font-weight: 500;
+      border-bottom: 1px dashed rgba(229, 89, 146, 0.5);
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    a:hover {
+      color: var(--accent-pink-hover);
+      border-bottom-color: var(--accent-pink-hover);
+    }
+
+    code {
+      background-color: var(--code-bg);
+      color: #f9a8d4;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+    }
+
+    .permission-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 0.65rem;
+      margin: 1rem 0;
+    }
+
+    .perm-item {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 0.55rem 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .copy-btn {
+      background-color: var(--code-bg);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .copy-btn:hover {
+      border-color: var(--accent-pink);
+      color: var(--accent-pink);
+    }
+
+    .copy-btn.copied {
+      border-color: var(--success);
+      color: var(--success);
+    }
+
+    .callout {
+      background-color: rgba(251, 191, 36, 0.08);
+      border-left: 3px solid var(--warning);
+      padding: 0.85rem 1rem;
+      border-radius: 0 6px 6px 0;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .callout strong {
+      color: var(--warning);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.75rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      background-color: var(--bg-input);
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    td {
+      color: #dfd8eb;
+    }
+
+    .req-tag {
+      color: var(--accent-pink);
+      font-weight: 600;
+      font-size: 0.8rem;
+    }
+
+    .opt-tag {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.2rem;">
+        <a href="/" style="display:inline-flex; align-items:center; gap:6px; font-size:0.9rem; color:#9e93b3; border:none; text-decoration:none;">
+          <span style="font-size:1.1rem;">←</span> Back to Fivestar
+        </a>
+        <a href="/youtube-guide.html" style="font-size:0.85rem; padding:0.35rem 0.85rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:6px; color:var(--text-main); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+          <span>🔴</span> View YouTube Guide
+        </a>
+      </div>
+      <h1>Instagram Reels Direct Upload <span class="badge">Graph API</span></h1>
+      <p class="subtitle">Complete step-by-step configuration guide to generate your Meta Graph API credentials and connect your account.</p>
+    </header>
+
+    <!-- STEP 1 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">1</div>
+        <h2>Convert to a Professional Account &amp; Link a Facebook Page</h2>
+      </div>
+      <p>Meta's Content Publishing API does not support personal Instagram accounts. Your Instagram profile must be a <strong>Business</strong> or <strong>Creator</strong> account linked to a Facebook Page you manage.</p>
+      <ol>
+        <li>Open the Instagram app, go to <strong>Settings and activity &rarr; Account type and tools</strong>, and tap <strong>Switch to professional account</strong> (choose either <em>Creator</em> or <em>Business</em>).</li>
+        <li>If you do not already have a Facebook Page, create one at <a href="https://www.facebook.com/pages/create" target="_blank" rel="noopener noreferrer">facebook.com/pages/create</a>.</li>
+        <li>Link them via <a href="https://business.facebook.com/settings/instagram-accounts" target="_blank" rel="noopener noreferrer">Meta Business Suite &rarr; Instagram Accounts</a> or in the Instagram mobile app under <strong>Edit profile &rarr; Page &rarr; Connect or create</strong>.</li>
+      </ol>
+    </section>
+
+    <!-- STEP 2 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">2</div>
+        <h2>Create a Meta Developer App</h2>
+      </div>
+      <p>You need a Meta App container to generate API access tokens and obtain your App ID and App Secret.</p>
+      <ol>
+        <li>Sign in to the <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta for Developers App Dashboard</a> and click <strong>Create App</strong>.</li>
+        <li>Enter an App Name (e.g., <em>Reels Auto Publisher</em>) and your contact email, then click <strong>Next</strong>.</li>
+        <li>Under <strong>Use cases</strong>, select <strong>Other</strong> &rarr; click <strong>Next</strong>.</li>
+        <li>Select <strong>Business</strong> as the app type &rarr; click <strong>Next</strong>, review details, and click <strong>Create app</strong>.</li>
+        <li>Once inside your App Dashboard, go to <strong>App settings &rarr; Basic</strong> in the left sidebar. Copy your <strong>App ID</strong> and click <strong>Show</strong> to copy your <strong>App Secret</strong> for Step 4.</li>
+      </ol>
+    </section>
+
+    <!-- STEP 3 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">3</div>
+        <h2>Generate Your Graph API Access Token (<code>EAA...</code>)</h2>
+      </div>
+      <p>Use Meta's Graph API Explorer to generate a User Access Token authorized for Reels publishing.</p>
+      <ol>
+        <li>Open the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Meta Graph API Explorer</a>.</li>
+        <li>In the right-hand panel under <strong>Meta App</strong>, select the app you just created in Step 2.</li>
+        <li>Under <strong>User or Page</strong>, leave it set to <strong>User Token</strong>.</li>
+        <li>Under <strong>Permissions</strong>, search for and add all five permissions below (click to copy):</li>
+      </ol>
+
+      <div class="permission-grid">
+        <div class="perm-item">
+          <code>instagram_basic</code>
+          <button class="copy-btn" onclick="copyText('instagram_basic', this)">Copy</button>
+        </div>
+        <div class="perm-item">
+          <code>instagram_content_publish</code>
+          <button class="copy-btn" onclick="copyText('instagram_content_publish', this)">Copy</button>
+        </div>
+        <div class="perm-item">
+          <code>pages_show_list</code>
+          <button class="copy-btn" onclick="copyText('pages_show_list', this)">Copy</button>
+        </div>
+        <div class="perm-item">
+          <code>pages_read_engagement</code>
+          <button class="copy-btn" onclick="copyText('pages_read_engagement', this)">Copy</button>
+        </div>
+        <div class="perm-item">
+          <code>business_management</code>
+          <button class="copy-btn" onclick="copyText('business_management', this)">Copy</button>
+        </div>
+      </div>
+
+      <ol start="5">
+        <li>Click <strong>Generate Access Token</strong>. In the Facebook login popup, grant access to the exact Facebook Page and Instagram account you linked in Step 1.</li>
+        <li>Copy the generated token string starting with <code>EAA...</code> from the top <strong>Access Token</strong> field.</li>
+      </ol>
+
+      <div class="callout">
+        <strong>Token Expiration Tip:</strong> Tokens generated directly in the Graph API Explorer expire after <strong>1 hour</strong>. To convert it into a <strong>60-day long-lived token</strong> immediately, paste it into the <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer">Meta Access Token Debugger</a>, click <strong>Debug</strong>, and click <strong>Extend Access Token</strong> at the bottom of the page.
+      </div>
+    </section>
+
+    <!-- STEP 4 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">4</div>
+        <h2>Fill In Your App Connection Settings</h2>
+      </div>
+      <p>Map the credentials you collected into the four fields of your connection panel:</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Form Field</th>
+            <th>Status</th>
+            <th>Where to Get Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Meta Graph API Access Token</strong></td>
+            <td><span class="req-tag">Required</span></td>
+            <td>Paste the <code>EAA...</code> User Access Token copied from the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Graph API Explorer</a> (or extended via the <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer">Token Debugger</a>).</td>
+          </tr>
+          <tr>
+            <td><strong>Instagram Business/Creator User ID</strong></td>
+            <td><span class="opt-tag">Optional</span></td>
+            <td>Leave blank to auto-detect from your linked Facebook Page. If you have multiple linked Pages, query <code>me/accounts?fields=instagram_business_account</code> in the <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer">Graph API Explorer</a> and paste the 17-digit <code>id</code>.</td>
+          </tr>
+          <tr>
+            <td><strong>Meta App ID</strong></td>
+            <td><span class="opt-tag">Optional (Recommended)</span></td>
+            <td>Found in <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta App Dashboard</a> &rarr; <strong>App settings &rarr; Basic</strong>. Enables automatic 60-day token renewal.</td>
+          </tr>
+          <tr>
+            <td><strong>Meta App Secret</strong></td>
+            <td><span class="opt-tag">Optional (Recommended)</span></td>
+            <td>Found next to App ID in <strong>App settings &rarr; Basic</strong> (click <em>Show</em>). Required alongside App ID to exchange short-lived tokens for 60-day tokens.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- STEP 5 -->
+    <section class="step-card">
+      <div class="step-header">
+        <div class="step-num">5</div>
+        <h2>Quick Troubleshooting</h2>
+      </div>
+      <ul>
+        <li><strong>"No Instagram Business account found":</strong> Ensure your Instagram account is switched to Business/Creator and that you selected both the Facebook Page and Instagram account during the OAuth consent popup in Step 3.</li>
+        <li><strong>"Invalid OAuth access token" / Expired Token:</strong> Short-lived tokens expire in 60 minutes. Always provide your <strong>Meta App ID</strong> and <strong>Meta App Secret</strong> so the backend can exchange and refresh the token for 60 days.</li>
+        <li><strong>Reels Upload Rejected:</strong> Instagram Graph API requires Reels videos to be hosted at a publicly accessible HTTPS URL (MP4/MOV, 9:16 aspect ratio recommended, 3 seconds to 15 minutes duration, max 1 GB).</li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    function copyText(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const original = btn.textContent;
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = original;
+          btn.classList.remove("copied");
+        }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>
