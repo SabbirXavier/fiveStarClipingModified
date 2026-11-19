@@ -1,5 +1,5 @@
 // dist/web/assets/live-trim-ui.js
-// Universal Trim Slider and Live Stream Clipper UI for Fivestar
+// Universal Trim Slider, Real-Time Video Sync, Multi-Platform Player, and Live Clipper UI
 
 export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, router, toast }) {
   const { useState, useEffect, useRef, useCallback } = React;
@@ -21,6 +21,57 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const parts = str.trim().split(":").map(Number);
     if (!parts.length || parts.some(p => !Number.isFinite(p) || p < 0)) return NaN;
     return parts.reduce((acc, val) => acc * 60 + val, 0);
+  }
+
+  // Helper to sync video player or iframe playback time
+  function seekActivePlayers(timeInSec) {
+    try {
+      // 1. Seek native HTML5 video elements
+      const videos = document.querySelectorAll("video");
+      videos.forEach(v => {
+        try {
+          if (Number.isFinite(v.duration) && v.duration > 0) {
+            v.currentTime = Math.min(v.duration, Math.max(0, timeInSec));
+          }
+        } catch {}
+      });
+
+      // 2. Seek YouTube iframes via postMessage API
+      const iframes = document.querySelectorAll("iframe");
+      iframes.forEach(iframe => {
+        try {
+          iframe.contentWindow?.postMessage(JSON.stringify({
+            event: "command",
+            func: "seekTo",
+            args: [timeInSec, true]
+          }), "*");
+        } catch {}
+      });
+    } catch {}
+  }
+
+  // Helper to control playback (play / pause)
+  function setPlayerPlayback(shouldPlay) {
+    try {
+      const videos = document.querySelectorAll("video");
+      videos.forEach(v => {
+        try {
+          if (shouldPlay) v.play();
+          else v.pause();
+        } catch {}
+      });
+
+      const iframes = document.querySelectorAll("iframe");
+      iframes.forEach(iframe => {
+        try {
+          iframe.contentWindow?.postMessage(JSON.stringify({
+            event: "command",
+            func: shouldPlay ? "playVideo" : "pauseVideo",
+            args: []
+          }), "*");
+        } catch {}
+      });
+    } catch {}
   }
 
   // Ensure CSS is injected
@@ -188,6 +239,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         background: rgba(255,255,255,0.14);
         color: #fff;
       }
+      .trim-btn-active {
+        background: rgba(168, 85, 247, 0.3) !important;
+        border-color: #a855f7 !important;
+        color: #fff !important;
+      }
       .trim-duration-pill {
         font-size: 12px;
         font-weight: 600;
@@ -309,13 +365,6 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         gap: 12px;
         align-items: center;
       }
-      .recent-live-thumb {
-        width: 80px;
-        height: 50px;
-        border-radius: 8px;
-        object-fit: cover;
-        background: #111;
-      }
     `;
     document.head.appendChild(styleEl);
   }
@@ -331,15 +380,18 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     onAddMoment,
     onSeek,
     isLive = false,
-    addLabel = "Add moment"
+    addLabel = "Add moment",
+    extraAction = null
   }) {
     const totalDuration = Math.max(10, duration);
     const [start, setStart] = useState(() => Math.max(0, Math.min(startTime, totalDuration - 3)));
     const [end, setEnd] = useState(() => Math.max(start + 3, Math.min(endTime || start + 60, totalDuration)));
     const [playhead, setPlayhead] = useState(() => start);
-    const [dragging, setDragging] = useState(null); // 'start' | 'end' | 'playhead' | 'track'
+    const [dragging, setDragging] = useState(null);
+    const [isPlayingLoop, setIsPlayingLoop] = useState(false);
 
     const trackRef = useRef(null);
+    const loopTimerRef = useRef(null);
 
     // Sync external props if changed
     useEffect(() => {
@@ -354,7 +406,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       }
     }, [endTime, totalDuration, start]);
 
-    // Notify parent on change
+    // Notify parent & sync players on change
     const updateTrim = useCallback((newStart, newEnd) => {
       const s = Math.max(0, Math.min(newStart, totalDuration - 1));
       const e = Math.max(s + 3, Math.min(newEnd, totalDuration));
@@ -371,7 +423,6 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       }
     }, [totalDuration, onTrimChange]);
 
-    // Handle drag interaction
     const getTimeFromEvent = useCallback((e) => {
       if (!trackRef.current) return 0;
       const rect = trackRef.current.getBoundingClientRect();
@@ -389,14 +440,17 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
           const nextStart = Math.min(time, end - 3);
           updateTrim(nextStart, end);
           setPlayhead(nextStart);
+          seekActivePlayers(nextStart);
           onSeek?.(nextStart);
         } else if (dragging === "end") {
           const nextEnd = Math.max(time, start + 3);
           updateTrim(start, nextEnd);
           setPlayhead(nextEnd);
+          seekActivePlayers(nextEnd);
           onSeek?.(nextEnd);
         } else if (dragging === "playhead" || dragging === "track") {
           setPlayhead(time);
+          seekActivePlayers(time);
           onSeek?.(time);
         }
       };
@@ -416,7 +470,6 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     // Keyboard Shortcuts (I to set IN, O to set OUT)
     useEffect(() => {
       const onKeyDown = (e) => {
-        // Only if not focused in an input
         if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
         if (e.key === "i" || e.key === "I") {
           e.preventDefault();
@@ -431,6 +484,31 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       window.addEventListener("keydown", onKeyDown);
       return () => window.removeEventListener("keydown", onKeyDown);
     }, [playhead, start, end, updateTrim, toast]);
+
+    // Loop Preview toggle
+    const toggleLoopPreview = () => {
+      if (isPlayingLoop) {
+        clearInterval(loopTimerRef.current);
+        setPlayerPlayback(false);
+        setIsPlayingLoop(false);
+      } else {
+        seekActivePlayers(start);
+        setPlayerPlayback(true);
+        setIsPlayingLoop(true);
+
+        const durationMs = (end - start) * 1000;
+        clearInterval(loopTimerRef.current);
+        loopTimerRef.current = setInterval(() => {
+          seekActivePlayers(start);
+        }, durationMs);
+      }
+    };
+
+    useEffect(() => {
+      return () => {
+        if (loopTimerRef.current) clearInterval(loopTimerRef.current);
+      };
+    }, []);
 
     const clipDuration = Math.round((end - start) * 10) / 10;
     const isDurationGood = clipDuration >= 3 && clipDuration <= 180;
@@ -456,7 +534,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                   }),
                   jsx("span", {
                     style: { fontSize: "13px", color: "#d4d4d8", fontWeight: 600 },
-                    children: isLive ? "Scrub stream & drag handles to clip" : "Drag handles to select exact moment"
+                    children: isLive ? "Scrub live DVR & drag handles to clip" : "Drag handles to select exact moment"
                   })
                 ]
               }),
@@ -478,6 +556,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             onPointerDown: (e) => {
               const time = getTimeFromEvent(e);
               setPlayhead(time);
+              seekActivePlayers(time);
               onSeek?.(time);
               setDragging("track");
             },
@@ -549,14 +628,20 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                         type: "button",
                         className: "trim-btn-mini",
                         title: "Nudge back 1s",
-                        onClick: () => updateTrim(start - 1, end),
+                        onClick: () => {
+                          updateTrim(start - 1, end);
+                          seekActivePlayers(start - 1);
+                        },
                         children: "-1s"
                       }),
                       jsx("button", {
                         type: "button",
                         className: "trim-btn-mini",
                         title: "Nudge forward 1s",
-                        onClick: () => updateTrim(start + 1, end),
+                        onClick: () => {
+                          updateTrim(start + 1, end);
+                          seekActivePlayers(start + 1);
+                        },
                         children: "+1s"
                       })
                     ]
@@ -578,14 +663,20 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                         type: "button",
                         className: "trim-btn-mini",
                         title: "Nudge back 1s",
-                        onClick: () => updateTrim(start, end - 1),
+                        onClick: () => {
+                          updateTrim(start, end - 1);
+                          seekActivePlayers(end - 1);
+                        },
                         children: "-1s"
                       }),
                       jsx("button", {
                         type: "button",
                         className: "trim-btn-mini",
                         title: "Nudge forward 1s",
-                        onClick: () => updateTrim(start, end + 1),
+                        onClick: () => {
+                          updateTrim(start, end + 1);
+                          seekActivePlayers(end + 1);
+                        },
                         children: "+1s"
                       })
                     ]
@@ -593,10 +684,17 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
 
-              // Center: Quick Presets & Hotkey markers
+              // Center: Quick Presets & Preview Loop
               jsxs("div", {
-                style: { display: "flex", gap: "6px", alignItems: "center" },
+                style: { display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" },
                 children: [
+                  jsx("button", {
+                    type: "button",
+                    className: `trim-btn-mini ${isPlayingLoop ? "trim-btn-active" : ""}`,
+                    title: isPlayingLoop ? "Stop looping selection" : "Play selected range on repeat",
+                    onClick: toggleLoopPreview,
+                    children: isPlayingLoop ? "⏹ Stop Loop" : "🔁 Preview Loop"
+                  }),
                   jsx("button", {
                     type: "button",
                     className: "trim-btn-mini",
@@ -628,16 +726,22 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
 
-              // Right: Action button (Add moment or slice)
-              jsx("button", {
-                type: "button",
-                className: "btn btn-primary",
-                style: { minWidth: "120px" },
-                disabled: !isDurationGood,
-                onClick: () => {
-                  onAddMoment?.({ start, end, duration: clipDuration });
-                },
-                children: addLabel
+              // Right: Action button(s)
+              jsxs("div", {
+                style: { display: "flex", gap: "8px", alignItems: "center" },
+                children: [
+                  extraAction,
+                  jsx("button", {
+                    type: "button",
+                    className: "btn btn-primary",
+                    style: { minWidth: "120px" },
+                    disabled: !isDurationGood,
+                    onClick: () => {
+                      onAddMoment?.({ start, end, duration: clipDuration });
+                    },
+                    children: addLabel
+                  })
+                ]
               })
             ]
           })
@@ -691,7 +795,6 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         if (!res.ok) throw new Error(data.error || "Failed to inspect live stream.");
 
         setStreamInfo(data);
-        // Default trim to last 60 seconds of available duration
         const dur = data.duration || 3600;
         const initialStart = Math.max(0, dur - 60);
         setTrim({ start: initialStart, end: dur, duration: 60 });
@@ -704,6 +807,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       }
     };
 
+    // Stage 2: Instant Slice & Transcribe Mode
     const handleCreateLiveClip = async () => {
       if (!streamInfo) return;
       if (trim.duration < 3 || trim.duration > 180) {
@@ -739,6 +843,52 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         setIsSlicing(false);
         setSliceProgress("");
       }
+    };
+
+    // Stage 4: AI Highlights in Window Mode
+    const handleAnalyzeWindow = async () => {
+      if (!streamInfo) return;
+      setIsSlicing(true);
+      setSliceProgress("Analyzing live DVR window for viral spikes & highlights...");
+      try {
+        const res = await fetch("/api/live/analyze-window", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: streamInfo.url,
+            start: trim.start,
+            end: trim.end,
+            title: streamInfo.title,
+            channel: streamInfo.channel,
+            videoId: streamInfo.videoId,
+            thumbnail: streamInfo.thumbnail
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to analyze live window.");
+
+        toast?.(`Found ${data.momentsCount} viral moments in this window! Opening...`);
+        // Navigate to the created project view
+        window.location.hash = router.stream(data.projectId);
+      } catch (err) {
+        toast?.(err.message, true);
+      } finally {
+        setIsSlicing(false);
+        setSliceProgress("");
+      }
+    };
+
+    // Multi-Platform Player URL generator
+    const getEmbedPlayerSrc = () => {
+      if (!streamInfo) return "";
+      const platform = streamInfo.platform || "youtube";
+      if (platform === "twitch") {
+        const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+        return `https://player.twitch.tv/?channel=${encodeURIComponent(streamInfo.channel)}&parent=${hostname}&autoplay=true`;
+      }
+      // YouTube
+      return `https://www.youtube.com/embed/${streamInfo.videoId}?autoplay=1&enablejsapi=1&rel=0`;
     };
 
     return jsx("main", {
@@ -783,7 +933,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 jsx("input", {
                   className: "input",
                   style: { flex: 1, padding: "10px 14px", fontSize: "15px" },
-                  placeholder: "Paste YouTube live stream link (e.g. https://www.youtube.com/watch?v=...)",
+                  placeholder: "Paste YouTube, Twitch or Kick live stream link (e.g. https://www.youtube.com/watch?v=...)",
                   value: urlInput,
                   onChange: (e) => setUrlInput(e.target.value),
                   disabled: loadingInfo || isSlicing
@@ -832,7 +982,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 className: "live-player-frame",
                 children: jsx("iframe", {
                   ref: playerRef,
-                  src: `https://www.youtube.com/embed/${streamInfo.videoId}?autoplay=1&enablejsapi=1&rel=0`,
+                  src: getEmbedPlayerSrc(),
                   title: streamInfo.title,
                   allow: "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
                   allowFullScreen: true
@@ -845,9 +995,17 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 startTime: trim.start,
                 endTime: trim.end,
                 isLive: true,
-                addLabel: isSlicing ? "Slicing segment..." : "⚡ Create Clip Now",
+                addLabel: isSlicing ? "Processing..." : "⚡ Create Clip Now",
                 onTrimChange: (newTrim) => setTrim(newTrim),
-                onAddMoment: handleCreateLiveClip
+                onAddMoment: handleCreateLiveClip,
+                extraAction: jsx("button", {
+                  type: "button",
+                  className: "btn btn-ghost",
+                  title: "Find AI highlights in this selected time window",
+                  disabled: isSlicing,
+                  onClick: handleAnalyzeWindow,
+                  children: "🤖 Find AI Highlights"
+                })
               }),
 
               // Slicing Progress Banner
