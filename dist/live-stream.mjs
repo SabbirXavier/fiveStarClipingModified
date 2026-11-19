@@ -399,7 +399,11 @@ export function registerLiveRoutes(app, deps) {
         signals: [{ key: "manual", available: true, detail: "Live stream DVR clipping" }],
         moments: [],
         clips: [],
-        timeline: []
+        timeline: {
+          step: Math.max(1, Math.ceil((duration || 60) / 900)),
+          heat: new Array(Math.max(1, Math.ceil((duration || 60) / Math.max(1, Math.ceil((duration || 60) / 900))))).fill(15),
+          signals: {}
+        }
       };
     }
 
@@ -460,8 +464,33 @@ export function registerLiveRoutes(app, deps) {
       project.source.duration = duration;
     }
 
+    updateLiveTimeline(project);
     saveProject(project, true);
     return project;
+  }
+
+  function updateLiveTimeline(project) {
+    if (!project) return;
+    const dur = Math.max(project.source?.duration || 0, 60);
+    const step = Math.max(1, Math.ceil(dur / 900));
+    const count = Math.max(1, Math.ceil(dur / step));
+    const heatArr = new Array(count).fill(15);
+    const moments = Array.isArray(project.moments) ? project.moments : [];
+    for (const m of moments) {
+      if (m.peak === undefined) {
+        m.peak = Math.round(((m.start || 0) + (m.end || m.start || 0)) / 2);
+      }
+      const sIdx = Math.max(0, Math.floor((m.start || 0) / step));
+      const eIdx = Math.min(count - 1, Math.floor((m.end || m.start || 0) / step));
+      for (let k = sIdx; k <= eIdx; k++) {
+        heatArr[k] = Math.max(heatArr[k], m.heat || 85);
+      }
+    }
+    project.timeline = {
+      step,
+      heat: heatArr,
+      signals: {}
+    };
   }
 
   // ==========================================
@@ -1238,11 +1267,14 @@ export function registerLiveRoutes(app, deps) {
       if (!Array.isArray(project.moments)) {
         project.moments = [];
       }
+      const mStart = Math.max(0, start);
+      const mEnd = Math.max(start + 1, end);
       project.moments.unshift({
         id: momentId,
         rank: (project.moments?.length || 0) + 1,
-        start: Math.max(0, start),
-        end: Math.max(start + 1, end),
+        start: mStart,
+        end: mEnd,
+        peak: Math.round((mStart + mEnd) / 2),
         heat: 99,
         stars: 5,
         reasons: [{ signal: "manual", label: trimLabel }],
@@ -1255,6 +1287,7 @@ export function registerLiveRoutes(app, deps) {
         project.source.duration = end;
       }
 
+      updateLiveTimeline(project);
       // Save project to disk & memory
       saveProject(project, true);
 
