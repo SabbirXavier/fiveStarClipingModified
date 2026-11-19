@@ -140,6 +140,8 @@ export function registerLiveRoutes(app, deps) {
       const ytDlpResult = await ytDlpRunner([
         "--no-warnings",
         "--no-progress",
+        "--js-runtimes", "node",
+        "--extractor-args", "youtube:formats=incomplete",
         "-J",
         url
       ], { timeout: 60e3 });
@@ -198,18 +200,20 @@ export function registerLiveRoutes(app, deps) {
         { id: "best", label: "✨ Best Available (Highest Quality)" }
       ];
       for (const h of availableHeights) {
-        if (h >= 2160) qualities.push({ id: String(h), label: `${h}p (4K UHD)` });
-        else if (h >= 1440) qualities.push({ id: String(h), label: `${h}p (2K QHD)` });
-        else if (h >= 1080) qualities.push({ id: String(h), label: `${h}p (Full HD)` });
-        else if (h >= 720) qualities.push({ id: String(h), label: `${h}p (HD)` });
+        const has60 = videoFormats.some(f => f.height === h && typeof f.fps === "number" && f.fps >= 50);
+        const fpsSuffix = has60 ? "60" : "";
+        if (h >= 2160) qualities.push({ id: String(h), label: `${h}p${fpsSuffix} (4K UHD)` });
+        else if (h >= 1440) qualities.push({ id: String(h), label: `${h}p${fpsSuffix} HD` });
+        else if (h >= 1080) qualities.push({ id: String(h), label: `${h}p${fpsSuffix} HD` });
+        else if (h >= 720) qualities.push({ id: String(h), label: `${h}p${fpsSuffix}` });
         else qualities.push({ id: String(h), label: `${h}p` });
       }
       if (qualities.length === 1) {
         qualities.push(
-          { id: "1440", label: "1440p (2K QHD)" },
-          { id: "1080", label: "1080p (Full HD)" },
-          { id: "720", label: "720p (HD)" },
-          { id: "480", label: "480p (SD)" },
+          { id: "1440", label: "1440p60 HD" },
+          { id: "1080", label: "1080p60 HD" },
+          { id: "720", label: "720p60" },
+          { id: "480", label: "480p" },
           { id: "360", label: "360p" }
         );
       }
@@ -380,7 +384,8 @@ export function registerLiveRoutes(app, deps) {
       const ytArgs = [
         "--no-warnings",
         "--force-overwrites",
-        "--js-runtimes", "node"
+        "--js-runtimes", "node",
+        "--extractor-args", "youtube:formats=incomplete"
       ];
       if (ffmpegBin) {
         ytArgs.push("--ffmpeg-location", path.dirname(ffmpegBin));

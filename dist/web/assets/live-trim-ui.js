@@ -1864,11 +1864,11 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                           },
                           title: "Select video resolution before clipping",
                           children: (streamInfo?.qualities && streamInfo.qualities.length ? streamInfo.qualities : [
-                            { id: "best", label: "✨ Best Available (Highest)" },
-                            { id: "1440", label: "1440p (2K QHD)" },
-                            { id: "1080", label: "1080p (Full HD)" },
-                            { id: "720", label: "720p (HD)" },
-                            { id: "480", label: "480p (SD)" },
+                            { id: "best", label: "✨ Best Available (Highest Quality)" },
+                            { id: "1440", label: "1440p60 HD" },
+                            { id: "1080", label: "1080p60 HD" },
+                            { id: "720", label: "720p60" },
+                            { id: "480", label: "480p" },
                             { id: "360", label: "360p" }
                           ]).map(q => jsx("option", {
                             key: q.id,
