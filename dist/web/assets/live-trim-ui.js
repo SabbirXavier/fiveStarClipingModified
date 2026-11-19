@@ -1285,6 +1285,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [streamInfo, setStreamInfo] = useState(null);
     const [loadingInfo, setLoadingInfo] = useState(false);
     const [trim, setTrim] = useState({ start: 0, end: 60, duration: 60 });
+    const [selectedQuality, setSelectedQuality] = useState("best");
     const [isSlicing, setIsSlicing] = useState(false);
     const [sliceProgress, setSliceProgress] = useState("");
     const [lastCreatedClip, setLastCreatedClip] = useState(null);
@@ -1361,7 +1362,8 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             title: streamInfo.title,
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
-            thumbnail: streamInfo.thumbnail
+            thumbnail: streamInfo.thumbnail,
+            quality: selectedQuality
           })
         });
         const data = await res.json();
@@ -1450,7 +1452,8 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
             title: streamInfo.title,
             channel: streamInfo.channel,
             videoId: streamInfo.videoId,
-            thumbnail: streamInfo.thumbnail
+            thumbnail: streamInfo.thumbnail,
+            quality: selectedQuality
           })
         });
 
@@ -1662,6 +1665,52 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 extraAction: jsxs("div", {
                   style: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
                   children: [
+                    jsxs("div", {
+                      style: {
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        background: "rgba(24, 17, 38, 0.95)",
+                        border: "1px solid #4a3869",
+                        borderRadius: "8px",
+                        padding: "3px 8px",
+                        color: "#e2e8f0"
+                      },
+                      children: [
+                        jsx("span", {
+                          style: { fontSize: "12px", color: "#a1a1aa", fontWeight: 600, display: "flex", alignItems: "center", gap: 3 },
+                          children: ["🎚️ Quality:"]
+                        }),
+                        jsx("select", {
+                          value: selectedQuality,
+                          onChange: (e) => setSelectedQuality(e.target.value),
+                          style: {
+                            background: "transparent",
+                            border: "none",
+                            color: "#ffd166",
+                            fontWeight: 700,
+                            fontSize: "12.5px",
+                            cursor: "pointer",
+                            outline: "none",
+                            paddingRight: "4px"
+                          },
+                          title: "Select video resolution before clipping",
+                          children: (streamInfo?.qualities && streamInfo.qualities.length ? streamInfo.qualities : [
+                            { id: "best", label: "✨ Best Available (Highest)" },
+                            { id: "1440", label: "1440p (2K QHD)" },
+                            { id: "1080", label: "1080p (Full HD)" },
+                            { id: "720", label: "720p (HD)" },
+                            { id: "480", label: "480p (SD)" },
+                            { id: "360", label: "360p" }
+                          ]).map(q => jsx("option", {
+                            key: q.id,
+                            value: q.id,
+                            style: { background: "#1c142d", color: "#f3effa" },
+                            children: q.label
+                          }))
+                        })
+                      ]
+                    }),
                     !isRecording ? jsxs("button", {
                       type: "button",
                       className: "btn btn-record-live",

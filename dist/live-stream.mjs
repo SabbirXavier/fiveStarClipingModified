@@ -123,7 +123,14 @@ export function registerLiveRoutes(app, deps) {
               url: `https://kick.com/${channelName}`,
               masterM3u8: kickInfo.masterM3u8,
               hlsStreamUrl: kickInfo.hlsProxyUrl,
-              streamUrl: kickInfo.hlsProxyUrl
+              streamUrl: kickInfo.hlsProxyUrl,
+              qualities: [
+                { id: "best", label: "✨ Best Available (Highest Quality)" },
+                { id: "1080", label: "1080p (Full HD)" },
+                { id: "720", label: "720p (HD)" },
+                { id: "480", label: "480p (SD)" },
+                { id: "360", label: "360p" }
+              ]
             });
           }
         }
@@ -183,6 +190,30 @@ export function registerLiveRoutes(app, deps) {
         console.warn("Could not fetch direct live URL:", e.message);
       }
 
+      // Enumerate available video stream qualities
+      const rawFormats = Array.isArray(meta.formats) ? meta.formats : [];
+      const videoFormats = rawFormats.filter(f => f.vcodec && f.vcodec !== "none");
+      const availableHeights = [...new Set(videoFormats.map(f => f.height).filter(h => typeof h === "number" && h > 0))].sort((a, b) => b - a);
+      const qualities = [
+        { id: "best", label: "✨ Best Available (Highest Quality)" }
+      ];
+      for (const h of availableHeights) {
+        if (h >= 2160) qualities.push({ id: String(h), label: `${h}p (4K UHD)` });
+        else if (h >= 1440) qualities.push({ id: String(h), label: `${h}p (2K QHD)` });
+        else if (h >= 1080) qualities.push({ id: String(h), label: `${h}p (Full HD)` });
+        else if (h >= 720) qualities.push({ id: String(h), label: `${h}p (HD)` });
+        else qualities.push({ id: String(h), label: `${h}p` });
+      }
+      if (qualities.length === 1) {
+        qualities.push(
+          { id: "1440", label: "1440p (2K QHD)" },
+          { id: "1080", label: "1080p (Full HD)" },
+          { id: "720", label: "720p (HD)" },
+          { id: "480", label: "480p (SD)" },
+          { id: "360", label: "360p" }
+        );
+      }
+
       return res.json({
         ok: true,
         isLive: isLiveNow,
@@ -194,7 +225,8 @@ export function registerLiveRoutes(app, deps) {
         viewCount,
         duration,
         url: meta.webpage_url || url,
-        streamUrl
+        streamUrl,
+        qualities
       });
     } catch (err) {
       console.error("Live info error:", err);
@@ -347,7 +379,8 @@ export function registerLiveRoutes(app, deps) {
       const ffmpegBin = getBinPath("ffmpeg");
       const ytArgs = [
         "--no-warnings",
-        "--force-overwrites"
+        "--force-overwrites",
+        "--js-runtimes", "node"
       ];
       if (ffmpegBin) {
         ytArgs.push("--ffmpeg-location", path.dirname(ffmpegBin));
@@ -364,10 +397,26 @@ export function registerLiveRoutes(app, deps) {
         const duration = Math.min(180, Math.max(3, end - start));
         sectionArg = start >= 300 ? `*0-${duration.toFixed(2)}` : `*${start.toFixed(2)}-${end.toFixed(2)}`;
       }
+
+      const reqQuality = String(req.body?.quality || "best").trim();
+      const qNum = parseInt(reqQuality, 10);
+      let formatSelector;
+      let sortSelector;
+
+      if (!isNaN(qNum) && qNum > 0) {
+        // Target requested resolution (e.g. 1440p, 1080p, 720p)
+        formatSelector = `bv*[height<=${qNum}][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=${qNum}][protocol^=m3u8]/bv*[height<=${qNum}]+ba/b[height<=${qNum}]/best`;
+        sortSelector = `res:${qNum},fps,vcodec:h264,tbr`;
+      } else {
+        // Best Available: select the highest quality stream format without artificially capping at 1080p
+        formatSelector = "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/bv*+ba/b";
+        sortSelector = "res,fps,vcodec:h264,tbr";
+      }
+
       ytArgs.push(
         "--download-sections", sectionArg,
-        "-f", "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/bv*+ba/b",
-        "-S", "res:1080,vcodec:h264,acodec:aac",
+        "-f", formatSelector,
+        "-S", sortSelector,
         "--merge-output-format", "mp4",
         "-o", path.join(cPath, "src.%(ext)s"),
         targetDownloadUrl
