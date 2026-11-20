@@ -1,12 +1,31 @@
+import { spawn } from "node:child_process";
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 import path from "node:path";
 
-let activeContext = null;
+const CDP_PORT = 9222;
 let isBusy = false;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Returns the path to the installed Google Chrome or Microsoft Edge binary on Windows.
+ */
+function getBrowserExecutablePath() {
+  const candidates = [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    path.join(process.env.LOCALAPPDATA || "", "Google\\Chrome\\Application\\chrome.exe"),
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe"
+  ];
+
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+  return "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 }
 
 /**
@@ -21,24 +40,93 @@ export function getProfileDir(dataDir) {
 }
 
 /**
- * Launches Chrome in visible mode so the user can log in or inspect their Instagram account.
+ * Checks if Chrome remote debugging port is open and responding.
+ */
+async function isPortOpen(port = CDP_PORT) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1200) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cleans up stale lockfiles if no Chrome process is currently listening on CDP port.
+ */
+function cleanStaleLockfile(profileDir) {
+  const lock = path.join(profileDir, "lockfile");
+  if (fs.existsSync(lock)) {
+    try {
+      fs.unlinkSync(lock);
+    } catch {}
+  }
+}
+
+/**
+ * Connects to an existing Chrome instance on CDP_PORT, or spawns a fresh Chrome window
+ * with a persistent profile on CDP_PORT. This avoids the Windows ProcessSingleton lock collision
+ * and avoids the '--no-sandbox' unsupported flag warning banner completely.
+ */
+export async function ensureBrowser(dataDir) {
+  const profileDir = getProfileDir(dataDir);
+  const open = await isPortOpen(CDP_PORT);
+
+  if (open) {
+    try {
+      const browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+      return browser;
+    } catch (e) {
+      console.warn("[Instagram Playwright] Could not connect to existing CDP port, will respawn:", e.message);
+    }
+  }
+
+  // Clean stale lockfile if Chrome is not listening
+  cleanStaleLockfile(profileDir);
+
+  const chromeExe = getBrowserExecutablePath();
+  const child = spawn(
+    chromeExe,
+    [
+      `--remote-debugging-port=${CDP_PORT}`,
+      `--user-data-dir=${profileDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-blink-features=AutomationControlled",
+      "https://www.instagram.com/"
+    ],
+    {
+      detached: true,
+      stdio: "ignore"
+    }
+  );
+  child.unref();
+
+  // Wait up to 15 seconds for Chrome to bind CDP port
+  for (let i = 0; i < 30; i++) {
+    await sleep(500);
+    if (await isPortOpen(CDP_PORT)) {
+      break;
+    }
+  }
+
+  return await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+}
+
+/**
+ * Launches or focuses Chrome in visible mode so the user can log in to Instagram.
  */
 export async function openInstagramBrowser(dataDir) {
-  const profileDir = getProfileDir(dataDir);
-  const context = await chromium.launchPersistentContext(profileDir, {
-    channel: "chrome",
-    headless: false,
-    viewport: { width: 1280, height: 860 },
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--no-first-run",
-      "--no-default-browser-check"
-    ]
-  });
-
-  const page = context.pages()[0] || (await context.newPage());
-  await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded" });
-  return { context, page };
+  const browser = await ensureBrowser(dataDir);
+  const context = browser.contexts()[0] || (await browser.newContext());
+  let page = context.pages().find((p) => p.url().includes("instagram.com"));
+  if (!page) {
+    page = context.pages()[0] || (await context.newPage());
+    await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded" });
+  } else {
+    await page.bringToFront();
+  }
+  return { browser, page };
 }
 
 /**
@@ -46,33 +134,28 @@ export async function openInstagramBrowser(dataDir) {
  */
 export async function checkLoginStatus(dataDir) {
   try {
-    const profileDir = getProfileDir(dataDir);
-    const context = await chromium.launchPersistentContext(profileDir, {
-      channel: "chrome",
-      headless: true,
-      args: ["--disable-blink-features=AutomationControlled"]
-    });
+    const browser = await ensureBrowser(dataDir);
+    const context = browser.contexts()[0] || (await browser.newContext());
+    let page = context.pages().find((p) => p.url().includes("instagram.com"));
+    if (!page) {
+      page = context.pages()[0] || (await context.newPage());
+      await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 20000 });
+      await sleep(2000);
+    }
 
-    const page = context.pages()[0] || (await context.newPage());
-    await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 20000 });
-    await sleep(2000);
-
-    // Look for create button or profile avatar indicating logged-in state
     const loggedInIndicator = await page.$(
       'svg[aria-label="New post"], svg[aria-label="Create"], svg[aria-label="Direct"], svg[aria-label="Home"], a[href*="/direct/inbox/"]'
     );
-    const isLogged = Boolean(loggedInIndicator);
-    await context.close();
-    return { loggedIn: isLogged };
+    return { loggedIn: Boolean(loggedInIndicator) };
   } catch (err) {
     return { loggedIn: false, error: err.message };
   }
 }
 
 /**
- * Automates the complete Instagram Reels upload process via Playwright:
- * 1. Opens Chrome with the persistent Instagram profile.
- * 2. Verifies login (or waits for user login if needed).
+ * Automates the complete Instagram Reels upload process via Playwright over CDP:
+ * 1. Connects to or spawns Chrome without sandbox warnings or profile lock collisions.
+ * 2. Checks login (prompts if not logged in).
  * 3. Opens the Create modal.
  * 4. Injects the MP4 video file.
  * 5. Sets 9:16 vertical crop.
@@ -89,36 +172,33 @@ export async function uploadReelWithPlaywright({
   onProgress = () => {}
 }) {
   if (isBusy) {
-    throw new Error("Another Instagram browser automation is already in progress. Please wait for it to finish.");
+    throw new Error("Another Instagram browser automation is currently running. Please wait for it to finish.");
   }
 
   isBusy = true;
-  let context = null;
 
   try {
     if (!fs.existsSync(videoPath)) {
       throw new Error(`Video file not found at: ${videoPath}`);
     }
 
-    onProgress("Launching Chrome with your Instagram profile…");
-    const profileDir = getProfileDir(dataDir);
+    onProgress("Connecting to Chrome on your computer…");
+    const browser = await ensureBrowser(dataDir);
+    const context = browser.contexts()[0] || (await browser.newContext());
 
-    context = await chromium.launchPersistentContext(profileDir, {
-      channel: "chrome",
-      headless: false,
-      viewport: { width: 1280, height: 860 },
-      args: [
-        "--disable-blink-features=AutomationControlled",
-        "--no-first-run",
-        "--no-default-browser-check"
-      ]
-    });
-
-    const page = context.pages()[0] || (await context.newPage());
-
-    onProgress("Navigating to Instagram…");
-    await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 45000 });
-    await sleep(2500);
+    let page = context.pages().find((p) => p.url().includes("instagram.com"));
+    if (!page) {
+      page = context.pages()[0] || (await context.newPage());
+      onProgress("Navigating to Instagram…");
+      await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 45000 });
+      await sleep(2500);
+    } else {
+      await page.bringToFront();
+      if (!page.url().includes("instagram.com")) {
+        await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 45000 });
+        await sleep(2500);
+      }
+    }
 
     // Check if user is logged in
     onProgress("Checking login status…");
@@ -128,7 +208,7 @@ export async function uploadReelWithPlaywright({
 
     if (!createBtn) {
       onProgress("Please log in to your Instagram account in the opened Chrome window…");
-      // Wait up to 90 seconds for user to log in manually
+      // Wait up to 90 seconds for user to log in
       for (let i = 0; i < 45; i++) {
         await sleep(2000);
         createBtn = await page.$(
@@ -139,18 +219,20 @@ export async function uploadReelWithPlaywright({
     }
 
     if (!createBtn) {
-      throw new Error("Could not find logged-in Instagram session. Please log in to Instagram in the opened browser window first.");
+      throw new Error(
+        "Instagram is not logged in. Please log in to your Instagram account in the opened Chrome window and click Upload again."
+      );
     }
 
     onProgress("Opening Create dialog…");
     await createBtn.click();
     await sleep(2000);
 
-    // Wait for the file input in the modal
+    // Wait for file input in modal
     onProgress("Selecting video file…");
     const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 15000 });
     if (!fileInput) {
-      throw new Error("Could not locate Instagram file input element.");
+      throw new Error("Could not find Instagram file input element.");
     }
 
     await fileInput.setInputFiles(videoPath);
@@ -166,7 +248,7 @@ export async function uploadReelWithPlaywright({
       }
     } catch {}
 
-    // Set 9:16 crop if crop button exists
+    // Set 9:16 crop if crop option button exists
     try {
       const cropBtn = await page.$('svg[aria-label="Select crop"], button[aria-label="Select crop"]');
       if (cropBtn) {
@@ -191,7 +273,7 @@ export async function uploadReelWithPlaywright({
     await nextBtn1.click();
     await sleep(3000);
 
-    // If Cover image is available, attach it in the Cover photo tab
+    // If Cover image is available, attach it in Cover photo tab
     if (coverPath && fs.existsSync(coverPath)) {
       try {
         onProgress("Applying custom Cover image…");
@@ -199,7 +281,6 @@ export async function uploadReelWithPlaywright({
         if (coverTab) await coverTab.click();
         await sleep(800);
 
-        // Find file input for custom cover
         const coverInputs = await page.$$('input[type="file"]');
         for (const input of coverInputs) {
           const accept = await input.getAttribute("accept");
@@ -233,7 +314,6 @@ export async function uploadReelWithPlaywright({
       if (captionBox) {
         await captionBox.click();
         await sleep(500);
-        // Type or paste caption
         await captionBox.fill(caption);
         await sleep(1000);
       }
@@ -257,7 +337,6 @@ export async function uploadReelWithPlaywright({
     await shareBtn.click();
 
     onProgress("Sharing Reel to Instagram… waiting for confirmation…");
-    // Wait for success indicator
     await page.waitForSelector(
       'span:has-text("Your reel has been shared"), span:has-text("Reel shared"), span:has-text("Post shared"), svg[aria-label="Animated checkmark"]',
       { timeout: 90000 }
