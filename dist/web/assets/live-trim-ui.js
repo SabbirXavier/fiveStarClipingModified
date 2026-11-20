@@ -2050,10 +2050,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 addLabel: isSlicing ? "Processing..." : (isLiveSync ? "⚡ Create Clip Now (Live)" : "⚡ Create Clip from Selection"),
                 onTrimChange: (newTrim) => {
                   setTrim(newTrim);
-                  const head = liveHead || streamInfo.duration || 7200;
-                  if (head - newTrim.end > 4) {
-                    setIsLiveSync(false);
-                  }
+                  setIsLiveSync(false);
                 },
                 onAddMoment: handleCreateLiveClip,
                 onSyncToLive: handleSnapToLive,
