@@ -1,3 +1,8 @@
+import {
+  openInstagramBrowser,
+  checkLoginStatus,
+  uploadReelWithPlaywright
+} from "./instagram-playwright.mjs";
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -1153,6 +1158,75 @@ export function registerSocialRoutes(app, deps) {
         return res.json({ ok: true, path: targetPath });
       } catch (err) {
         next(err);
+      }
+    }
+  );
+
+    // ---- Playwright Automated Browser Upload Endpoints ----
+  app.post("/api/social/instagram/browser/open", async (req, res, next) => {
+    try {
+      await openInstagramBrowser(dataDir);
+      res.json({ ok: true, message: "Chrome opened with your Instagram profile." });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get("/api/social/instagram/browser/status", async (req, res, next) => {
+    try {
+      const result = await checkLoginStatus(dataDir);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post(
+    "/api/projects/:id/clips/:clipId/upload/instagram/playwright",
+    optionalMultipart,
+    async (req, res, next) => {
+      let resolved = null;
+      try {
+        const { p, clip } = getProjectAndClip(req);
+        resolved = await resolveClipVideoFile(req, p, clip);
+
+        const body = req.body && typeof req.body === "object" ? req.body : {};
+        const caption = String(body.caption ?? clip.meta?.instagramCaption ?? "").slice(0, 2200);
+        const autoShare = body.autoShare !== false && body.autoShare !== "false";
+
+        // Find cover image if exists
+        const pDir = projectDir(p.id);
+        const cDir = path.join(pDir, "clips", clip.id);
+        let coverPath = path.join(cDir, "cover.jpg");
+        if (!fs.existsSync(coverPath)) {
+          coverPath = path.join(cDir, "poster.jpg");
+          if (!fs.existsSync(coverPath)) coverPath = "";
+        }
+
+        const result = await uploadReelWithPlaywright({
+          dataDir,
+          videoPath: resolved.filePath,
+          coverPath,
+          caption,
+          autoShare
+        });
+
+        if (result.published) {
+          clip.instagramUpload = {
+            ok: true,
+            method: "playwright",
+            at: Date.now()
+          };
+          saveProject(p, true);
+        }
+
+        res.json(result);
+      } catch (err) {
+        next(err);
+      } finally {
+        if (resolved?.cleanup && resolved.filePath) {
+          fs.rmSync(resolved.filePath, { force: true });
+        }
       }
     }
   );

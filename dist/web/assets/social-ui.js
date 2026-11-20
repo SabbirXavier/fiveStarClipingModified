@@ -1075,9 +1075,12 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
 
   function InstagramUploadBox({ project, clip, draft, meta }) {
     const { status } = useSocialStatus();
-    const [igMode, setIgMode] = useState("browser"); // "browser" (safest) or "graph" (direct API)
+    const [igMode, setIgMode] = useState("playwright"); // "playwright" | "graph" | "manual"
     const [shareToFeed, setShareToFeed] = useState(true);
+    const [autoShare, setAutoShare] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [playwrightLoading, setPlaywrightLoading] = useState(false);
+    const [playwrightStatus, setPlaywrightStatus] = useState("");
     const [revealing, setRevealing] = useState(false);
     const [error, setError] = useState("");
     const [localFile, setLocalFile] = useState(null);
@@ -1102,7 +1105,67 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
       .filter(Boolean)
       .join("\n\n");
 
-    // 1-Click Safe Browser Assistant: Copies caption, reveals video in File Explorer, opens Instagram Web
+    // Playwright Automated Browser Upload Handler
+    const handlePlaywrightUpload = async () => {
+      if (isLocalProject && !localFile) {
+        setError("Choose the exported MP4 file from your computer first.");
+        return;
+      }
+      if (!isLocalProject && !hasServerExport) {
+        setError("Click Export MP4 at the top of Publish first, then upload.");
+        return;
+      }
+
+      setPlaywrightLoading(true);
+      setError("");
+      setPlaywrightStatus("Launching Chrome and automating Instagram Reels upload…");
+
+      try {
+        if (draft?.flush) await draft.flush();
+
+        let respData;
+        if (isLocalProject && localFile) {
+          const fd = new FormData();
+          fd.append("file", localFile);
+          fd.append("caption", fullCaption);
+          fd.append("autoShare", String(autoShare));
+          respData = await apiJson(
+            `/api/projects/${project.id}/clips/${clip.id}/upload/instagram/playwright`,
+            { method: "POST", body: fd }
+          );
+        } else {
+          respData = await apiJson(
+            `/api/projects/${project.id}/clips/${clip.id}/upload/instagram/playwright`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ caption: fullCaption, autoShare }),
+            }
+          );
+        }
+
+        setLastResult({ ok: true, method: "playwright", at: Date.now() });
+        toast(respData.message || "Reel uploaded to Instagram via Playwright!");
+        setPlaywrightStatus(respData.message || "Reel uploaded successfully!");
+      } catch (err) {
+        setError(err.message);
+        setPlaywrightStatus("");
+        toast(err.message, true);
+      } finally {
+        setPlaywrightLoading(false);
+      }
+    };
+
+    const handleOpenProfileBrowser = async () => {
+      try {
+        await apiJson("/api/social/instagram/browser/open", { method: "POST" });
+        toast("Chrome opened! Please check or log in to your Instagram account.");
+      } catch (err) {
+        toast("Could not open Chrome: " + err.message, true);
+      }
+    };
+
+    // Safe Manual Assistant: Copies caption, reveals video in File Explorer, opens Instagram Web
     const handleSafeBrowserUpload = async () => {
       setRevealing(true);
       try {
@@ -1147,7 +1210,7 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
       }
     };
 
-    // Existing Meta Graph API handler (completely preserved)
+    // Meta Graph API handler
     const handleUpload = async () => {
       if (!ig?.connected) {
         openSettingsModal();
@@ -1218,7 +1281,7 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
         jsxs("div", {
           className: "row",
           style: {
-            gap: 6,
+            gap: 4,
             background: "rgba(255, 255, 255, 0.04)",
             padding: 4,
             borderRadius: "var(--r-sm, 8px)",
@@ -1230,19 +1293,19 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
               className: "btn btn-small",
               style: {
                 flex: 1,
-                fontWeight: igMode === "browser" ? 700 : 500,
-                fontSize: 12.5,
+                fontWeight: igMode === "playwright" ? 700 : 500,
+                fontSize: 12,
                 background:
-                  igMode === "browser"
-                    ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                  igMode === "playwright"
+                    ? "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)"
                     : "transparent",
                 color: "#fff",
                 border: "none",
                 boxShadow:
-                  igMode === "browser" ? "0 2px 8px rgba(16, 185, 129, 0.3)" : "none",
+                  igMode === "playwright" ? "0 2px 8px rgba(2, 132, 199, 0.35)" : "none",
               },
-              onClick: () => setIgMode("browser"),
-              children: "🛡️ Browser Upload (Safest — 0% Ban Risk)",
+              onClick: () => setIgMode("playwright"),
+              children: "🤖 Playwright Auto-Upload",
             }),
             jsx("button", {
               type: "button",
@@ -1250,7 +1313,7 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
               style: {
                 flex: 1,
                 fontWeight: igMode === "graph" ? 700 : 500,
-                fontSize: 12.5,
+                fontSize: 12,
                 background:
                   igMode === "graph"
                     ? "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)"
@@ -1262,22 +1325,41 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
               },
               onClick: () => setIgMode("graph"),
               children: ig?.connected
-                ? `⚡ Meta Graph API (@${ig.username || "Connected"})`
-                : "⚡ Meta Graph API (Direct)",
+                ? `⚡ Graph API (@${ig.username || "Connected"})`
+                : "⚡ Meta Graph API",
+            }),
+            jsx("button", {
+              type: "button",
+              className: "btn btn-small",
+              style: {
+                flex: 1,
+                fontWeight: igMode === "manual" ? 700 : 500,
+                fontSize: 12,
+                background:
+                  igMode === "manual"
+                    ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                    : "transparent",
+                color: "#fff",
+                border: "none",
+                boxShadow:
+                  igMode === "manual" ? "0 2px 8px rgba(16, 185, 129, 0.3)" : "none",
+              },
+              onClick: () => setIgMode("manual"),
+              children: "🛡️ Manual Drag & Drop",
             }),
           ],
         }),
 
-        // Tab 1: Safe Browser Upload Assistant
-        igMode === "browser" &&
+        // Tab 1: Playwright Automated Browser Upload
+        igMode === "playwright" &&
           jsxs("div", {
             className: "stack",
             style: {
               gap: 10,
               padding: "12px 14px",
               borderRadius: "var(--r-sm, 8px)",
-              border: "1px solid rgba(16, 185, 129, 0.25)",
-              background: "rgba(16, 185, 129, 0.04)",
+              border: "1px solid rgba(2, 132, 199, 0.25)",
+              background: "rgba(2, 132, 199, 0.04)",
             },
             children: [
               jsxs("div", {
@@ -1285,95 +1367,108 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                 children: [
                   jsxs("span", {
                     className: "status status-good",
-                    style: { fontWeight: 600, fontSize: 13 },
+                    style: { fontWeight: 600, fontSize: 13, color: "#38bdf8" },
                     children: [
-                      jsx(Check, { size: 14 }),
-                      "Safest: Uses your active login in Chrome / Edge (Zero bot checks)",
+                      "🤖 Automated Browser: Video + Cover + Caption auto-filled in Chrome",
                     ],
                   }),
-                  jsx("span", {
-                    className: "note",
-                    style: { fontSize: 11.5, color: "#10b981" },
-                    children: "Personal & Pro accounts",
+                  jsxs("button", {
+                    type: "button",
+                    className: "btn btn-small",
+                    style: { fontSize: 11, padding: "2px 8px" },
+                    onClick: handleOpenProfileBrowser,
+                    children: ["👤 Open Chrome / Log In"],
                   }),
                 ],
               }),
 
-              // Primary 1-Click Action Button
+              isLocalProject &&
+                jsxs("div", {
+                  className: "field",
+                  children: [
+                    jsx("label", {
+                      htmlFor: `ig-local-mp4-playwright-${clip.id}`,
+                      children: "Choose exported MP4 file to upload",
+                    }),
+                    jsx("input", {
+                      id: `ig-local-mp4-playwright-${clip.id}`,
+                      type: "file",
+                      accept: "video/mp4",
+                      className: "input",
+                      onChange: (e) => setLocalFile(e.target.files?.[0] || null),
+                    }),
+                  ],
+                }),
+
+              jsxs("div", {
+                className: "row",
+                style: { gap: 10, alignItems: "center" },
+                children: [
+                  jsxs("label", {
+                    className: "row",
+                    style: { gap: 6, fontSize: 12.5, cursor: "pointer" },
+                    children: [
+                      jsx("input", {
+                        type: "checkbox",
+                        checked: autoShare,
+                        disabled: playwrightLoading,
+                        onChange: (e) => setAutoShare(e.target.checked),
+                      }),
+                      "Automatically click Share when ready",
+                    ],
+                  }),
+                ],
+              }),
+
+              // Primary Action Button
               jsxs("button", {
                 type: "button",
                 className: "btn btn-primary",
                 style: {
-                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
                   border: "none",
                   color: "#fff",
                   fontWeight: 700,
                   fontSize: 14,
-                  boxShadow: "0 2px 10px rgba(16, 185, 129, 0.35)",
+                  boxShadow: "0 2px 10px rgba(2, 132, 199, 0.35)",
                 },
-                disabled: revealing,
-                onClick: handleSafeBrowserUpload,
+                disabled: playwrightLoading || (!isLocalProject && !hasServerExport),
+                onClick: handlePlaywrightUpload,
                 children: [
-                  revealing ? jsx(Spinner, { size: 15 }) : jsx(Upload, { size: 15 }),
-                  revealing ? "Opening Instagram & File…" : "🚀 1-Click: Copy Caption & Open Instagram",
+                  playwrightLoading ? jsx(Spinner, { size: 15 }) : jsx(Upload, { size: 15 }),
+                  playwrightLoading
+                    ? "Automating Upload in Chrome…"
+                    : "🚀 Auto-Upload Reel via Playwright",
                 ],
               }),
 
-              // 3-step checklist
-              jsxs("div", {
-                className: "stack",
-                style: {
-                  gap: 4,
-                  fontSize: 12.5,
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  background: "rgba(0,0,0,0.25)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                },
-                children: [
-                  jsx("div", {
-                    style: { fontWeight: 600, color: "#a7f3d0", marginBottom: 2 },
-                    children: "How it works in 3 seconds:",
-                  }),
-                  jsx("div", {
-                    children:
-                      "1️⃣ The button copies your caption and opens Windows File Explorer with the video highlighted.",
-                  }),
-                  jsx("div", {
-                    children:
-                      "2️⃣ Click + Create in Instagram Web and drag the video file directly into the browser.",
-                  }),
-                  jsx("div", {
-                    children:
-                      "3️⃣ Press Ctrl + V to paste your caption and hit Share. 100% human, 0% ban risk!",
-                  }),
-                ],
-              }),
+              !isLocalProject &&
+                !hasServerExport &&
+                jsx("p", {
+                  className: "note",
+                  children: "Export the MP4 above first, then click Auto-Upload Reel.",
+                }),
 
-              // Quick manual buttons
-              jsxs("div", {
-                className: "row",
-                style: { flexWrap: "wrap", gap: 6 },
+              playwrightStatus &&
+                jsxs("p", {
+                  className: "status status-good",
+                  style: { fontSize: 12.5 },
+                  children: [jsx(Check, { size: 14 }), playwrightStatus],
+                }),
+
+              error &&
+                jsxs("p", {
+                  className: "status status-bad",
+                  children: [jsx(ErrorIcon, { size: 15 }), error],
+                }),
+
+              jsxs("p", {
+                className: "note",
+                style: { fontSize: 12 },
                 children: [
-                  jsxs("button", {
-                    type: "button",
-                    className: "btn btn-small",
-                    onClick: handleCopyCaptionOnly,
-                    children: [jsx(Copy, { size: 13 }), "Copy Caption Only"],
-                  }),
-                  jsxs("button", {
-                    type: "button",
-                    className: "btn btn-small",
-                    onClick: handleRevealFileOnly,
-                    children: ["📁 Show in Explorer"],
-                  }),
-                  jsxs("a", {
-                    className: "btn btn-small",
-                    href: "https://www.instagram.com/",
-                    target: "_blank",
-                    rel: "noreferrer",
-                    children: [jsx(External, { size: 13 }), "instagram.com"],
-                  }),
+                  "Tip: Click ",
+                  jsx("b", { children: "👤 Open Chrome / Log In" }),
+                  " first to make sure your Instagram account is logged in inside the automated Chrome window.",
                 ],
               }),
             ],
@@ -1515,6 +1610,84 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
                       }),
                   ],
                 }),
+            ],
+          }),
+
+        // Tab 3: Safe Manual Assistant
+        igMode === "manual" &&
+          jsxs("div", {
+            className: "stack",
+            style: {
+              gap: 10,
+              padding: "12px 14px",
+              borderRadius: "var(--r-sm, 8px)",
+              border: "1px solid rgba(16, 185, 129, 0.25)",
+              background: "rgba(16, 185, 129, 0.04)",
+            },
+            children: [
+              jsxs("div", {
+                className: "row-between",
+                children: [
+                  jsxs("span", {
+                    className: "status status-good",
+                    style: { fontWeight: 600, fontSize: 13 },
+                    children: [
+                      jsx(Check, { size: 14 }),
+                      "Safest: Uses your active login in Chrome / Edge (Zero bot checks)",
+                    ],
+                  }),
+                  jsx("span", {
+                    className: "note",
+                    style: { fontSize: 11.5, color: "#10b981" },
+                    children: "Personal & Pro accounts",
+                  }),
+                ],
+              }),
+
+              jsxs("button", {
+                type: "button",
+                className: "btn btn-primary",
+                style: {
+                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  border: "none",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  boxShadow: "0 2px 10px rgba(16, 185, 129, 0.35)",
+                },
+                disabled: revealing,
+                onClick: handleSafeBrowserUpload,
+                children: [
+                  revealing ? jsx(Spinner, { size: 15 }) : jsx(Upload, { size: 15 }),
+                  revealing ? "Opening Instagram & File…" : "🚀 1-Click: Copy Caption & Open Instagram",
+                ],
+              }),
+
+              jsxs("div", {
+                className: "row",
+                style: { flexWrap: "wrap", gap: 6 },
+                children: [
+                  jsxs("button", {
+                    type: "button",
+                    className: "btn btn-small",
+                    onClick: handleCopyCaptionOnly,
+                    children: [jsx(Copy, { size: 13 }), "Copy Caption Only"],
+                  }),
+                  jsxs("button", {
+                    type: "button",
+                    className: "btn btn-small",
+                    onClick: handleRevealFileOnly,
+                    children: ["📁 Show in Explorer"],
+                  }),
+                  jsxs("a", {
+                    className: "btn btn-small",
+                    href: "https://www.instagram.com/",
+                    target: "_blank",
+                    rel: "noreferrer",
+                    children: [jsx(External, { size: 13 }), "instagram.com"],
+                  }),
+                ],
+              }),
             ],
           }),
       ],
