@@ -60,7 +60,7 @@ export class LiveBufferSession {
     const flags = [
       "--no-warnings",
       "--js-runtimes", "node",
-      "--extractor-args", "youtube:formats=incomplete",
+      "--extractor-args", "youtube:player_client=android,web;formats=incomplete",
       "-g",
       "-f", "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/bv*+ba/b/best",
       this.url

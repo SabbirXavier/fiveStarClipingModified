@@ -620,7 +620,7 @@ export function registerLiveRoutes(app, deps) {
         "--no-warnings",
         "--no-progress",
         "--js-runtimes", "node",
-        "--extractor-args", "youtube:formats=incomplete",
+        "--extractor-args", "youtube:player_client=android,web;formats=incomplete",
         "-J",
         url
       ], { timeout: 60e3 });
@@ -920,7 +920,7 @@ export function registerLiveRoutes(app, deps) {
         "--no-warnings",
         "--force-overwrites",
         "--js-runtimes", "node",
-        "--extractor-args", "youtube:formats=incomplete",
+        "--extractor-args", "youtube:player_client=android,web;formats=incomplete",
         "--socket-timeout", "30",
         "--retries", "5",
         "--fragment-retries", "5"
@@ -1073,7 +1073,7 @@ export function registerLiveRoutes(app, deps) {
           const urlRes = await ytDlpRunner([
             "--no-warnings",
             "--js-runtimes", "node",
-            "--extractor-args", "youtube:formats=incomplete",
+            "--extractor-args", "youtube:player_client=android,web;formats=incomplete",
             "-g",
             targetDownloadUrl
           ], { timeout: 35e3 });
