@@ -224,25 +224,44 @@ export async function uploadReelWithPlaywright({
       );
     }
 
-    onProgress("Opening Create dialog…");
-    await createBtn.click();
-    await sleep(2000);
+    // Check if modal with file input is already open in the page
+    let fileInput = page.locator('input[type="file"]').first();
+    const isFileInputAlreadyAttached = (await fileInput.count()) > 0;
 
-    // Wait for file input in modal
-    onProgress("Selecting video file…");
-    const fileInput = await page.waitForSelector('input[type="file"]', { timeout: 15000 });
-    if (!fileInput) {
-      throw new Error("Could not find Instagram file input element.");
+    if (!isFileInputAlreadyAttached) {
+      onProgress("Opening Create dialog…");
+      await createBtn.click();
+      await sleep(1500);
+
+      // In Instagram web, clicking "New post" / "Create" often opens a popover submenu
+      // containing "Post" and "AI content". We must click "Post" to trigger the upload modal.
+      try {
+        const postMenuItem = page
+          .locator(
+            'span:text-is("Post"), div[role="button"]:has-text("Post"), a:has-text("Post"), button:has-text("Post")'
+          )
+          .first();
+        if (await postMenuItem.isVisible({ timeout: 2500 }).catch(() => false)) {
+          await postMenuItem.click({ force: true });
+          await sleep(1500);
+        }
+      } catch (e) {
+        console.warn("[Instagram Playwright] Popover menu check notice:", e.message);
+      }
     }
 
+    // Wait for file input in modal (Must use state: 'attached' because Instagram hides <input type="file"> with CSS)
+    onProgress("Selecting video file…");
+    fileInput = page.locator('input[type="file"]').first();
+    await fileInput.waitFor({ state: "attached", timeout: 25000 });
     await fileInput.setInputFiles(videoPath);
     onProgress("Video file attached. Waiting for video preview…");
     await sleep(4000);
 
     // Handle "Video posts are now shared as reels" modal if it appears
     try {
-      const okModalBtn = await page.$('button:has-text("OK"), div[role="button"]:has-text("OK")');
-      if (okModalBtn) {
+      const okModalBtn = page.locator('button:has-text("OK"), div[role="button"]:has-text("OK")').first();
+      if (await okModalBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
         await okModalBtn.click();
         await sleep(1000);
       }
@@ -250,12 +269,14 @@ export async function uploadReelWithPlaywright({
 
     // Set 9:16 crop if crop option button exists
     try {
-      const cropBtn = await page.$('svg[aria-label="Select crop"], button[aria-label="Select crop"]');
-      if (cropBtn) {
+      const cropBtn = page
+        .locator('svg[aria-label="Select crop"], button[aria-label="Select crop"], div[role="button"]:has(svg[aria-label="Select crop"])')
+        .first();
+      if (await cropBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await cropBtn.click();
         await sleep(800);
-        const verticalOption = await page.$('button:has-text("9:16"), span:has-text("9:16")');
-        if (verticalOption) {
+        const verticalOption = page.locator('button:has-text("9:16"), span:has-text("9:16"), div[role="button"]:has-text("9:16")').first();
+        if (await verticalOption.isVisible({ timeout: 2000 }).catch(() => false)) {
           await verticalOption.click();
           await sleep(600);
         }
@@ -266,10 +287,10 @@ export async function uploadReelWithPlaywright({
 
     // Click Next (to cover/edit screen)
     onProgress("Moving to Cover selection…");
-    const nextBtn1 = await page.waitForSelector(
-      'div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Weiter")',
-      { timeout: 15000 }
-    );
+    const nextBtn1 = page
+      .locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Weiter")')
+      .first();
+    await nextBtn1.waitFor({ state: "visible", timeout: 25000 });
     await nextBtn1.click();
     await sleep(3000);
 
@@ -277,17 +298,27 @@ export async function uploadReelWithPlaywright({
     if (coverPath && fs.existsSync(coverPath)) {
       try {
         onProgress("Applying custom Cover image…");
-        const coverTab = await page.$('div[role="tab"]:has-text("Cover photo"), button:has-text("Cover photo")');
-        if (coverTab) await coverTab.click();
-        await sleep(800);
+        const coverTab = page
+          .locator('div[role="tab"]:has-text("Cover photo"), button:has-text("Cover photo"), div[role="button"]:has-text("Cover photo")')
+          .first();
+        if (await coverTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await coverTab.click();
+          await sleep(1000);
+        }
 
-        const coverInputs = await page.$$('input[type="file"]');
-        for (const input of coverInputs) {
-          const accept = await input.getAttribute("accept");
-          if (accept && accept.includes("image")) {
-            await input.setInputFiles(coverPath);
-            await sleep(1500);
-            break;
+        const coverInput = page.locator('input[type="file"][accept*="image"]').first();
+        if (await coverInput.count()) {
+          await coverInput.setInputFiles(coverPath);
+          await sleep(1500);
+        } else {
+          const allInputs = await page.locator('input[type="file"]').all();
+          for (const input of allInputs) {
+            const accept = await input.getAttribute("accept");
+            if (accept && accept.includes("image")) {
+              await input.setInputFiles(coverPath);
+              await sleep(1500);
+              break;
+            }
           }
         }
       } catch (e) {
@@ -297,26 +328,30 @@ export async function uploadReelWithPlaywright({
 
     // Click Next (to Caption screen)
     onProgress("Moving to Caption details…");
-    const nextBtn2 = await page.waitForSelector(
-      'div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Weiter")',
-      { timeout: 15000 }
-    );
+    const nextBtn2 = page
+      .locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Weiter")')
+      .first();
+    await nextBtn2.waitFor({ state: "visible", timeout: 25000 });
     await nextBtn2.click();
     await sleep(3000);
 
     // Fill caption and hashtags
     if (caption) {
       onProgress("Typing caption and hashtags…");
-      const captionBox = await page.waitForSelector(
-        'div[role="textbox"][aria-label*="caption" i], div[contenteditable="true"][aria-label*="caption" i], div[contenteditable="true"]',
-        { timeout: 15000 }
-      );
-      if (captionBox) {
-        await captionBox.click();
-        await sleep(500);
+      const captionBox = page
+        .locator(
+          'div[role="textbox"][aria-label*="caption" i], div[contenteditable="true"][aria-label*="caption" i], div[contenteditable="true"]'
+        )
+        .first();
+      await captionBox.waitFor({ state: "visible", timeout: 25000 });
+      await captionBox.click();
+      await sleep(500);
+      try {
         await captionBox.fill(caption);
-        await sleep(1000);
+      } catch {
+        await page.keyboard.insertText(caption);
       }
+      await sleep(1000);
     }
 
     if (!autoShare) {
@@ -330,10 +365,10 @@ export async function uploadReelWithPlaywright({
 
     // Auto-click Share
     onProgress("Clicking Share…");
-    const shareBtn = await page.waitForSelector(
-      'div[role="button"]:has-text("Share"), button:has-text("Share"), div[role="button"]:has-text("Teilen")',
-      { timeout: 15000 }
-    );
+    const shareBtn = page
+      .locator('div[role="button"]:has-text("Share"), button:has-text("Share"), div[role="button"]:has-text("Teilen")')
+      .first();
+    await shareBtn.waitFor({ state: "visible", timeout: 25000 });
     await shareBtn.click();
 
     onProgress("Sharing Reel to Instagram… waiting for confirmation…");

@@ -222,8 +222,9 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         user-select: none;
         touch-action: none;
         cursor: pointer;
+        margin-top: 26px;
         margin-bottom: 14px;
-        overflow: hidden;
+        overflow: visible;
       }
       .trim-slider-track-wrap:hover {
         border-color: rgba(255, 255, 255, 0.22);
@@ -235,6 +236,7 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
         background: linear-gradient(90deg, rgba(124, 58, 237, 0.35), rgba(168, 85, 247, 0.45));
         border-top: 2px solid #a855f7;
         border-bottom: 2px solid #a855f7;
+        border-radius: 8px;
         pointer-events: none;
       }
       .trim-handle {
@@ -267,27 +269,39 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
       }
       .trim-playhead {
         position: absolute;
-        top: 0;
-        bottom: 0;
+        top: -4px;
+        bottom: -4px;
         width: 2px;
         margin-left: -1px;
         background: #38bdf8;
         box-shadow: 0 0 8px #38bdf8;
-        z-index: 8;
+        z-index: 25;
         pointer-events: none;
       }
       .trim-playhead-badge {
         position: absolute;
-        top: 2px;
+        bottom: calc(100% + 4px);
         left: 50%;
         transform: translateX(-50%);
         background: #0284c7;
         color: #fff;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 700;
-        padding: 1px 4px;
-        border-radius: 3px;
+        padding: 2px 6px;
+        border-radius: 4px;
         white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+        z-index: 30;
+      }
+      .trim-playhead-badge::after {
+        content: "";
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 4px solid transparent;
+        border-top-color: #0284c7;
       }
       .trim-controls-grid {
         display: flex;
