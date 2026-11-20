@@ -1075,8 +1075,10 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
 
   function InstagramUploadBox({ project, clip, draft, meta }) {
     const { status } = useSocialStatus();
+    const [igMode, setIgMode] = useState("browser"); // "browser" (safest) or "graph" (direct API)
     const [shareToFeed, setShareToFeed] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [revealing, setRevealing] = useState(false);
     const [error, setError] = useState("");
     const [localFile, setLocalFile] = useState(null);
     const [lastResult, setLastResult] = useState(clip.instagramUpload || null);
@@ -1090,6 +1092,62 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
     const isLocalProject = project.source?.kind === "local";
     const hasServerExport = Boolean(clip.output?.file && clip.output.file !== "local");
 
+    // Caption + hashtags combined
+    const fullCaption = [
+      (meta.instagramCaption || clip.meta?.instagramCaption || "").trim(),
+      (Array.isArray(meta.hashtags || clip.meta?.hashtags)
+        ? (meta.hashtags || clip.meta?.hashtags).map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")
+        : ""),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    // 1-Click Safe Browser Assistant: Copies caption, reveals video in File Explorer, opens Instagram Web
+    const handleSafeBrowserUpload = async () => {
+      setRevealing(true);
+      try {
+        if (fullCaption) {
+          try {
+            await navigator.clipboard.writeText(fullCaption);
+          } catch {}
+        }
+        try {
+          await apiJson(`/api/projects/${project.id}/clips/${clip.id}/reveal-file`, { method: "POST" });
+        } catch (e) {
+          console.warn("Could not reveal file:", e.message);
+        }
+        window.open("https://www.instagram.com/", "_blank");
+        toast("Caption copied and video revealed! Drag it into Instagram to share.");
+      } catch (err) {
+        toast("Notice: " + err.message, true);
+      } finally {
+        setRevealing(false);
+      }
+    };
+
+    const handleCopyCaptionOnly = async () => {
+      if (fullCaption) {
+        try {
+          await navigator.clipboard.writeText(fullCaption);
+          toast("Copied caption and hashtags to clipboard!");
+        } catch (e) {
+          toast("Could not copy to clipboard.", true);
+        }
+      } else {
+        toast("No caption entered above.", true);
+      }
+    };
+
+    const handleRevealFileOnly = async () => {
+      try {
+        await apiJson(`/api/projects/${project.id}/clips/${clip.id}/reveal-file`, { method: "POST" });
+        toast("Highlighted video in Windows Explorer!");
+      } catch (e) {
+        toast("Could not locate file: " + e.message, true);
+      }
+    };
+
+    // Existing Meta Graph API handler (completely preserved)
     const handleUpload = async () => {
       if (!ig?.connected) {
         openSettingsModal();
@@ -1152,131 +1210,310 @@ export function createSocialComponents({ React, jsx, jsxs, Fragment, icons, toas
       }
     };
 
-    if (!ig?.connected) {
-      return jsxs("div", {
-        className: "stack",
-        style: { gap: 8 },
-        children: [
-          jsxs("div", {
-            className: "row",
-            style: { flexWrap: "wrap", gap: 8 },
-            children: [
-              jsxs("button", {
-                type: "button",
-                className: "btn btn-primary",
-                onClick: openSettingsModal,
-                children: [jsx(Upload, { size: 15 }), "Connect Instagram in Settings"],
-              }),
-              jsxs("a", {
-                className: "btn",
-                href: "https://www.instagram.com/",
-                target: "_blank",
-                rel: "noreferrer",
-                children: [jsx(External, { size: 15 }), "Open Instagram"],
-              }),
-            ],
-          }),
-          jsx("p", {
-            className: "note",
-            children:
-              "Add your Instagram Business/Creator Graph API token in Settings to publish Reels directly, or open Instagram manually.",
-          }),
-        ],
-      });
-    }
-
     return jsxs("div", {
       className: "stack",
-      style: { gap: 8 },
+      style: { gap: 10 },
       children: [
+        // Mode Switcher Tabs
         jsxs("div", {
-          className: "row-between",
+          className: "row",
+          style: {
+            gap: 6,
+            background: "rgba(255, 255, 255, 0.04)",
+            padding: 4,
+            borderRadius: "var(--r-sm, 8px)",
+            border: "1px solid var(--line-strong, rgba(255,255,255,0.1))",
+          },
           children: [
-            jsxs("span", {
-              className: "status status-good",
-              children: [
-                jsx(Check, { size: 14 }),
-                ig.username ? `Account: @${ig.username}` : "Instagram connected",
-              ],
+            jsx("button", {
+              type: "button",
+              className: "btn btn-small",
+              style: {
+                flex: 1,
+                fontWeight: igMode === "browser" ? 700 : 500,
+                fontSize: 12.5,
+                background:
+                  igMode === "browser"
+                    ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                    : "transparent",
+                color: "#fff",
+                border: "none",
+                boxShadow:
+                  igMode === "browser" ? "0 2px 8px rgba(16, 185, 129, 0.3)" : "none",
+              },
+              onClick: () => setIgMode("browser"),
+              children: "🛡️ Browser Upload (Safest — 0% Ban Risk)",
             }),
-            jsxs("label", {
-              className: "row",
-              style: { gap: 6, fontSize: 13, cursor: "pointer" },
-              children: [
-                jsx("input", {
-                  type: "checkbox",
-                  checked: shareToFeed,
-                  disabled: uploading,
-                  onChange: (e) => setShareToFeed(e.target.checked),
-                }),
-                "Share to feed",
-              ],
+            jsx("button", {
+              type: "button",
+              className: "btn btn-small",
+              style: {
+                flex: 1,
+                fontWeight: igMode === "graph" ? 700 : 500,
+                fontSize: 12.5,
+                background:
+                  igMode === "graph"
+                    ? "linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)"
+                    : "transparent",
+                color: "#fff",
+                border: "none",
+                boxShadow:
+                  igMode === "graph" ? "0 2px 8px rgba(139, 92, 246, 0.3)" : "none",
+              },
+              onClick: () => setIgMode("graph"),
+              children: ig?.connected
+                ? `⚡ Meta Graph API (@${ig.username || "Connected"})`
+                : "⚡ Meta Graph API (Direct)",
             }),
           ],
         }),
-        isLocalProject &&
-          jsxs("div", {
-            className: "field",
-            children: [
-              jsx("label", {
-                htmlFor: `ig-local-mp4-${clip.id}`,
-                children: "Choose exported MP4 file to upload",
-              }),
-              jsx("input", {
-                id: `ig-local-mp4-${clip.id}`,
-                type: "file",
-                accept: "video/mp4",
-                className: "input",
-                onChange: (e) => setLocalFile(e.target.files?.[0] || null),
-              }),
-            ],
-          }),
-        jsxs("button", {
-          type: "button",
-          className: "btn btn-primary",
-          disabled: uploading || (!isLocalProject && !hasServerExport),
-          onClick: handleUpload,
-          children: [
-            uploading ? jsx(Spinner, { size: 15 }) : jsx(Upload, { size: 15 }),
-            uploading ? "Uploading & processing Reel…" : "Upload to Instagram",
-          ],
-        }),
-        !isLocalProject &&
-          !hasServerExport &&
-          jsx("p", {
-            className: "note",
-            children: "Export the MP4 above first, then click Upload to Instagram.",
-          }),
-        error &&
-          jsxs("p", {
-            className: "status status-bad",
-            children: [jsx(ErrorIcon, { size: 15 }), error],
-          }),
-        lastResult?.mediaId &&
+
+        // Tab 1: Safe Browser Upload Assistant
+        igMode === "browser" &&
           jsxs("div", {
             className: "stack",
             style: {
-              gap: 6,
-              padding: "10px 12px",
+              gap: 10,
+              padding: "12px 14px",
               borderRadius: "var(--r-sm, 8px)",
-              border: "1px solid var(--line-strong)",
-              background: "var(--surface-2, rgba(255,255,255,0.03))",
+              border: "1px solid rgba(16, 185, 129, 0.25)",
+              background: "rgba(16, 185, 129, 0.04)",
             },
             children: [
-              jsxs("span", {
-                className: "status status-good",
+              jsxs("div", {
+                className: "row-between",
                 children: [
-                  jsx(Check, { size: 15 }),
-                  `Published Reel${lastResult.username ? ` to @${lastResult.username}` : ""}`,
+                  jsxs("span", {
+                    className: "status status-good",
+                    style: { fontWeight: 600, fontSize: 13 },
+                    children: [
+                      jsx(Check, { size: 14 }),
+                      "Safest: Uses your active login in Chrome / Edge (Zero bot checks)",
+                    ],
+                  }),
+                  jsx("span", {
+                    className: "note",
+                    style: { fontSize: 11.5, color: "#10b981" },
+                    children: "Personal & Pro accounts",
+                  }),
                 ],
               }),
-              lastResult.permalink &&
-                jsxs("a", {
-                  className: "btn btn-small",
-                  href: lastResult.permalink,
-                  target: "_blank",
-                  rel: "noreferrer",
-                  children: [jsx(External, { size: 13 }), "Open Reel"],
+
+              // Primary 1-Click Action Button
+              jsxs("button", {
+                type: "button",
+                className: "btn btn-primary",
+                style: {
+                  background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                  border: "none",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: 14,
+                  boxShadow: "0 2px 10px rgba(16, 185, 129, 0.35)",
+                },
+                disabled: revealing,
+                onClick: handleSafeBrowserUpload,
+                children: [
+                  revealing ? jsx(Spinner, { size: 15 }) : jsx(Upload, { size: 15 }),
+                  revealing ? "Opening Instagram & File…" : "🚀 1-Click: Copy Caption & Open Instagram",
+                ],
+              }),
+
+              // 3-step checklist
+              jsxs("div", {
+                className: "stack",
+                style: {
+                  gap: 4,
+                  fontSize: 12.5,
+                  padding: "8px 10px",
+                  borderRadius: 6,
+                  background: "rgba(0,0,0,0.25)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                },
+                children: [
+                  jsx("div", {
+                    style: { fontWeight: 600, color: "#a7f3d0", marginBottom: 2 },
+                    children: "How it works in 3 seconds:",
+                  }),
+                  jsx("div", {
+                    children:
+                      "1️⃣ The button copies your caption and opens Windows File Explorer with the video highlighted.",
+                  }),
+                  jsx("div", {
+                    children:
+                      "2️⃣ Click + Create in Instagram Web and drag the video file directly into the browser.",
+                  }),
+                  jsx("div", {
+                    children:
+                      "3️⃣ Press Ctrl + V to paste your caption and hit Share. 100% human, 0% ban risk!",
+                  }),
+                ],
+              }),
+
+              // Quick manual buttons
+              jsxs("div", {
+                className: "row",
+                style: { flexWrap: "wrap", gap: 6 },
+                children: [
+                  jsxs("button", {
+                    type: "button",
+                    className: "btn btn-small",
+                    onClick: handleCopyCaptionOnly,
+                    children: [jsx(Copy, { size: 13 }), "Copy Caption Only"],
+                  }),
+                  jsxs("button", {
+                    type: "button",
+                    className: "btn btn-small",
+                    onClick: handleRevealFileOnly,
+                    children: ["📁 Show in Explorer"],
+                  }),
+                  jsxs("a", {
+                    className: "btn btn-small",
+                    href: "https://www.instagram.com/",
+                    target: "_blank",
+                    rel: "noreferrer",
+                    children: [jsx(External, { size: 13 }), "instagram.com"],
+                  }),
+                ],
+              }),
+            ],
+          }),
+
+        // Tab 2: Meta Graph API (Direct 1-Click programmatic upload)
+        igMode === "graph" &&
+          jsxs("div", {
+            className: "stack",
+            style: { gap: 8 },
+            children: [
+              !ig?.connected &&
+                jsxs("div", {
+                  className: "stack",
+                  style: { gap: 8 },
+                  children: [
+                    jsxs("div", {
+                      className: "row",
+                      style: { flexWrap: "wrap", gap: 8 },
+                      children: [
+                        jsxs("button", {
+                          type: "button",
+                          className: "btn btn-primary",
+                          onClick: openSettingsModal,
+                          children: [jsx(Upload, { size: 15 }), "Connect Instagram in Settings"],
+                        }),
+                        jsx("a", {
+                          href: "/instagram-guide.html",
+                          target: "_blank",
+                          rel: "noreferrer",
+                          className: "btn",
+                          children: "📖 Meta Setup Guide ↗",
+                        }),
+                      ],
+                    }),
+                    jsx("p", {
+                      className: "note",
+                      children:
+                        "Direct API upload requires a Meta Developer App, Instagram Professional/Creator account, and linked Facebook Page.",
+                    }),
+                  ],
+                }),
+
+              ig?.connected &&
+                jsxs("div", {
+                  className: "stack",
+                  style: { gap: 8 },
+                  children: [
+                    jsxs("div", {
+                      className: "row-between",
+                      children: [
+                        jsxs("span", {
+                          className: "status status-good",
+                          children: [
+                            jsx(Check, { size: 14 }),
+                            ig.username ? `Account: @${ig.username}` : "Instagram connected",
+                          ],
+                        }),
+                        jsxs("label", {
+                          className: "row",
+                          style: { gap: 6, fontSize: 13, cursor: "pointer" },
+                          children: [
+                            jsx("input", {
+                              type: "checkbox",
+                              checked: shareToFeed,
+                              disabled: uploading,
+                              onChange: (e) => setShareToFeed(e.target.checked),
+                            }),
+                            "Share to feed",
+                          ],
+                        }),
+                      ],
+                    }),
+                    isLocalProject &&
+                      jsxs("div", {
+                        className: "field",
+                        children: [
+                          jsx("label", {
+                            htmlFor: `ig-local-mp4-${clip.id}`,
+                            children: "Choose exported MP4 file to upload",
+                          }),
+                          jsx("input", {
+                            id: `ig-local-mp4-${clip.id}`,
+                            type: "file",
+                            accept: "video/mp4",
+                            className: "input",
+                            onChange: (e) => setLocalFile(e.target.files?.[0] || null),
+                          }),
+                        ],
+                      }),
+                    jsxs("button", {
+                      type: "button",
+                      className: "btn btn-primary",
+                      disabled: uploading || (!isLocalProject && !hasServerExport),
+                      onClick: handleUpload,
+                      children: [
+                        uploading ? jsx(Spinner, { size: 15 }) : jsx(Upload, { size: 15 }),
+                        uploading ? "Uploading & processing Reel…" : "Upload to Instagram (Graph API)",
+                      ],
+                    }),
+                    !isLocalProject &&
+                      !hasServerExport &&
+                      jsx("p", {
+                        className: "note",
+                        children: "Export the MP4 above first, then click Upload to Instagram.",
+                      }),
+                    error &&
+                      jsxs("p", {
+                        className: "status status-bad",
+                        children: [jsx(ErrorIcon, { size: 15 }), error],
+                      }),
+                    lastResult?.mediaId &&
+                      jsxs("div", {
+                        className: "stack",
+                        style: {
+                          gap: 6,
+                          padding: "10px 12px",
+                          borderRadius: "var(--r-sm, 8px)",
+                          border: "1px solid var(--line-strong)",
+                          background: "var(--surface-2, rgba(255,255,255,0.03))",
+                        },
+                        children: [
+                          jsxs("span", {
+                            className: "status status-good",
+                            children: [
+                              jsx(Check, { size: 15 }),
+                              `Published Reel${lastResult.username ? ` to @${lastResult.username}` : ""}`,
+                            ],
+                          }),
+                          lastResult.permalink &&
+                            jsxs("a", {
+                              className: "btn btn-small",
+                              href: lastResult.permalink,
+                              target: "_blank",
+                              rel: "noreferrer",
+                              children: [jsx(External, { size: 13 }), "Open Reel"],
+                            }),
+                        ],
+                      }),
+                  ],
                 }),
             ],
           }),

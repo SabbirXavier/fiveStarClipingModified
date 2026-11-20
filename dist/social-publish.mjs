@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -1105,6 +1106,56 @@ export function registerSocialRoutes(app, deps) {
     saveStore(store);
     res.json(publicStatus(req, store));
   });
+
+  // ---- Reveal Clip Video File in Windows Explorer / macOS Finder ----
+  app.post(
+    "/api/projects/:id/clips/:clipId/reveal-file",
+    async (req, res, next) => {
+      try {
+        const { p, clip } = getProjectAndClip(req);
+        const pDir = projectDir(p.id);
+        const cDir = path.join(pDir, "clips", clip.id);
+
+        let targetPath = "";
+        if (clip.output?.file && clip.output.file !== "local") {
+          const exportPath = path.resolve(pDir, clip.output.file);
+          if (fs.existsSync(exportPath)) targetPath = exportPath;
+        }
+
+        if (!targetPath) {
+          const srcPath = path.join(cDir, "src.mp4");
+          if (fs.existsSync(srcPath)) {
+            targetPath = srcPath;
+          } else if (fs.existsSync(cDir)) {
+            targetPath = cDir;
+          } else if (fs.existsSync(pDir)) {
+            targetPath = pDir;
+          }
+        }
+
+        if (!targetPath) {
+          return res.status(404).json({ error: "Clip folder or video file not found on disk." });
+        }
+
+        if (process.platform === "win32") {
+          if (fs.statSync(targetPath).isDirectory()) {
+            spawn("explorer.exe", [targetPath], { detached: true, stdio: "ignore" }).unref();
+          } else {
+            spawn("explorer.exe", ["/select,", targetPath], { detached: true, stdio: "ignore" }).unref();
+          }
+        } else if (process.platform === "darwin") {
+          spawn("open", ["-R", targetPath], { detached: true, stdio: "ignore" }).unref();
+        } else {
+          const openDir = fs.statSync(targetPath).isDirectory() ? targetPath : path.dirname(targetPath);
+          spawn("xdg-open", [openDir], { detached: true, stdio: "ignore" }).unref();
+        }
+
+        return res.json({ ok: true, path: targetPath });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
 
   // ---- Instagram Reels Direct Upload (Resumable Binary Flow) ----
   app.post(
