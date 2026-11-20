@@ -1298,57 +1298,91 @@ export function registerSocialRoutes(app, deps) {
         const uploadUri =
           createData.uri || `https://rupload.facebook.com/ig-api-upload/${GRAPH_VERSION}/${containerId}`;
 
-        // Step 2: Resumable chunked upload of local MP4 binary to rupload.facebook.com
-        // Uploads the video in 8MB chunks with exact byte ranges so large Reels (up to 100MB+)
-        // do not get dropped or rejected with HTTP 400 Bad Request by Meta's rupload gateway.
-        const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB chunks
-        let currentOffset = 0;
+        // Step 2: Upload local MP4 binary to rupload.facebook.com
+        // When totalSize <= 128MB, send as a single buffer with exact headers (OAuth token, offset: 0, file_size)
+        // matching Meta's official cURL specification. For massive files (>128MB), use chunked buffer transfers.
         const totalSize = resolved.size;
-        const fd = fs.openSync(resolved.filePath, "r");
+        const token = String(ig.accessToken || "").trim();
 
-        try {
-          while (currentOffset < totalSize) {
-            const bytesToRead = Math.min(CHUNK_SIZE, totalSize - currentOffset);
-            const chunkBuf = Buffer.alloc(bytesToRead);
-            fs.readSync(fd, chunkBuf, 0, bytesToRead, currentOffset);
+        if (totalSize <= 128 * 1024 * 1024) {
+          const fileBuf = fs.readFileSync(resolved.filePath);
+          const uploadResp = await fetch(uploadUri, {
+            method: "POST",
+            headers: {
+              Authorization: `OAuth ${token}`,
+              offset: "0",
+              file_size: String(totalSize),
+              "Content-Type": "application/octet-stream",
+              "Content-Length": String(totalSize),
+            },
+            body: fileBuf,
+          });
 
-            const chunkResp = await fetch(uploadUri, {
-              method: "POST",
-              headers: {
-                Authorization: `OAuth ${ig.accessToken}`,
-                offset: String(currentOffset),
-                file_size: String(totalSize),
-                "Content-Type": "application/octet-stream",
-                "Content-Length": String(bytesToRead),
-              },
-              body: chunkBuf,
-            });
+          const uploadRaw = await uploadResp.text();
+          const uploadData = parseJsonSafe(uploadRaw);
 
-            const chunkRaw = await chunkResp.text();
-            const chunkData = parseJsonSafe(chunkRaw);
-
-            if (!chunkResp.ok || chunkData?.error || chunkData?.success === false) {
-              console.error("[Meta Graph API] rupload error at offset", currentOffset, chunkResp.status, chunkRaw);
-              throw makeError(
-                chunkResp.status || 500,
-                formatMetaError(
-                  chunkData || chunkRaw,
-                  `Instagram rejected MP4 binary upload at offset ${currentOffset} (HTTP ${chunkResp.status}).`
-                )
-              );
-            }
-
-            if (
-              typeof chunkData?.offset === "number" ||
-              (typeof chunkData?.offset === "string" && !isNaN(Number(chunkData.offset)))
-            ) {
-              currentOffset = Number(chunkData.offset);
-            } else {
-              currentOffset += bytesToRead;
-            }
+          if (!uploadResp.ok || uploadData?.error || uploadData?.success === false) {
+            console.error("[Meta Graph API] rupload error:", uploadResp.status, uploadRaw);
+            const errDetail = uploadRaw ? `: ${uploadRaw.slice(0, 300)}` : "";
+            throw makeError(
+              uploadResp.status || 500,
+              formatMetaError(
+                uploadData || uploadRaw,
+                `Instagram rejected MP4 binary upload (HTTP ${uploadResp.status})${errDetail}.`
+              )
+            );
           }
-        } finally {
-          fs.closeSync(fd);
+        } else {
+          // Chunked fallback for >128MB videos
+          const CHUNK_SIZE = 16 * 1024 * 1024;
+          let currentOffset = 0;
+          const fd = fs.openSync(resolved.filePath, "r");
+
+          try {
+            while (currentOffset < totalSize) {
+              const bytesToRead = Math.min(CHUNK_SIZE, totalSize - currentOffset);
+              const chunkBuf = Buffer.alloc(bytesToRead);
+              fs.readSync(fd, chunkBuf, 0, bytesToRead, currentOffset);
+
+              const chunkResp = await fetch(uploadUri, {
+                method: "POST",
+                headers: {
+                  Authorization: `OAuth ${token}`,
+                  offset: String(currentOffset),
+                  file_size: String(totalSize),
+                  "Content-Type": "application/octet-stream",
+                  "Content-Length": String(bytesToRead),
+                },
+                body: chunkBuf,
+              });
+
+              const chunkRaw = await chunkResp.text();
+              const chunkData = parseJsonSafe(chunkRaw);
+
+              if (!chunkResp.ok || chunkData?.error || chunkData?.success === false) {
+                console.error("[Meta Graph API] rupload error at offset", currentOffset, chunkResp.status, chunkRaw);
+                const errDetail = chunkRaw ? `: ${chunkRaw.slice(0, 300)}` : "";
+                throw makeError(
+                  chunkResp.status || 500,
+                  formatMetaError(
+                    chunkData || chunkRaw,
+                    `Instagram rejected MP4 binary upload at offset ${currentOffset} (HTTP ${chunkResp.status})${errDetail}.`
+                  )
+                );
+              }
+
+              if (
+                typeof chunkData?.offset === "number" ||
+                (typeof chunkData?.offset === "string" && !isNaN(Number(chunkData.offset)))
+              ) {
+                currentOffset = Number(chunkData.offset);
+              } else {
+                currentOffset += bytesToRead;
+              }
+            }
+          } finally {
+            fs.closeSync(fd);
+          }
         }
 
         // Step 3: Poll container until Meta finishes video processing

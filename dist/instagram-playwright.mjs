@@ -55,11 +55,14 @@ async function isPortOpen(port = CDP_PORT) {
  * Cleans up stale lockfiles if no Chrome process is currently listening on CDP port.
  */
 function cleanStaleLockfile(profileDir) {
-  const lock = path.join(profileDir, "lockfile");
-  if (fs.existsSync(lock)) {
-    try {
-      fs.unlinkSync(lock);
-    } catch {}
+  const staleNames = ["lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"];
+  for (const name of staleNames) {
+    const p = path.join(profileDir, name);
+    if (fs.existsSync(p)) {
+      try {
+        fs.unlinkSync(p);
+      } catch {}
+    }
   }
 }
 
@@ -200,10 +203,21 @@ export async function uploadReelWithPlaywright({
       }
     }
 
+    // Dismiss common Instagram overlay popups if present (cookies, notifications, save login)
+    try {
+      const dismissButtons = page.locator(
+        'button:has-text("Not Now"), button:has-text("Not now"), button:has-text("Jetzt nicht"), button:has-text("अभी नहीं"), button:has-text("Cancel"), button:has-text("Close"), div[role="button"]:has-text("Not Now"), div[role="button"]:has-text("Not now")'
+      );
+      if (await dismissButtons.first().isVisible({ timeout: 2000 }).catch(() => false)) {
+        await dismissButtons.first().click().catch(() => {});
+        await sleep(500);
+      }
+    } catch {}
+
     // Check if user is logged in
     onProgress("Checking login status…");
     let createBtn = await page.$(
-      'svg[aria-label="New post"], svg[aria-label="Create"], a:has(svg[aria-label="New post"]), a:has(svg[aria-label="Create"]), div[role="button"]:has(svg[aria-label="New post"]), div[role="button"]:has(svg[aria-label="Create"]), span:has-text("Create")'
+      'svg[aria-label="New post"], svg[aria-label="Create"], svg[aria-label="Neuer Beitrag"], svg[aria-label="नई पोस्ट"], a:has(svg[aria-label="New post"]), a:has(svg[aria-label="Create"]), div[role="button"]:has(svg[aria-label="New post"]), div[role="button"]:has(svg[aria-label="Create"]), span:text-is("Create"), span:text-is("New post")'
     );
 
     if (!createBtn) {
@@ -212,7 +226,7 @@ export async function uploadReelWithPlaywright({
       for (let i = 0; i < 45; i++) {
         await sleep(2000);
         createBtn = await page.$(
-          'svg[aria-label="New post"], svg[aria-label="Create"], a:has(svg[aria-label="New post"]), a:has(svg[aria-label="Create"]), div[role="button"]:has(svg[aria-label="New post"]), div[role="button"]:has(svg[aria-label="Create"]), span:has-text("Create")'
+          'svg[aria-label="New post"], svg[aria-label="Create"], svg[aria-label="Neuer Beitrag"], svg[aria-label="नई पोस्ट"], a:has(svg[aria-label="New post"]), a:has(svg[aria-label="Create"]), div[role="button"]:has(svg[aria-label="New post"]), div[role="button"]:has(svg[aria-label="Create"]), span:text-is("Create"), span:text-is("New post")'
         );
         if (createBtn) break;
       }
@@ -238,7 +252,7 @@ export async function uploadReelWithPlaywright({
       try {
         const postMenuItem = page
           .locator(
-            'span:text-is("Post"), div[role="button"]:has-text("Post"), a:has-text("Post"), button:has-text("Post")'
+            'span:text-is("Post"), div[role="button"]:has-text("Post"), a:has-text("Post"), button:has-text("Post"), span:text-is("पोस्ट"), div[role="button"]:has-text("पोस्ट"), span:text-is("Beitrag")'
           )
           .first();
         if (await postMenuItem.isVisible({ timeout: 2500 }).catch(() => false)) {
@@ -260,7 +274,7 @@ export async function uploadReelWithPlaywright({
 
     // Handle "Video posts are now shared as reels" modal if it appears
     try {
-      const okModalBtn = page.locator('button:has-text("OK"), div[role="button"]:has-text("OK")').first();
+      const okModalBtn = page.locator('button:has-text("OK"), div[role="button"]:has-text("OK"), button:has-text("ठीक है")').first();
       if (await okModalBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
         await okModalBtn.click();
         await sleep(1000);
@@ -288,7 +302,9 @@ export async function uploadReelWithPlaywright({
     // Click Next (to cover/edit screen)
     onProgress("Moving to Cover selection…");
     const nextBtn1 = page
-      .locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Weiter")')
+      .locator(
+        'div[role="dialog"] header div[role="button"]:has-text("Next"), div[role="dialog"] header button:has-text("Next"), div[role="dialog"] div[role="button"]:has-text("Next"), div[role="dialog"] button:has-text("Next"), div[role="dialog"] div[role="button"]:has-text("Weiter"), div[role="dialog"] div[role="button"]:has-text("आगे"), div[role="dialog"] header div[role="button"]:last-child, div[role="dialog"] header button:last-child'
+      )
       .first();
     await nextBtn1.waitFor({ state: "visible", timeout: 25000 });
     await nextBtn1.click();
@@ -299,7 +315,7 @@ export async function uploadReelWithPlaywright({
       try {
         onProgress("Applying custom Cover image…");
         const coverTab = page
-          .locator('div[role="tab"]:has-text("Cover photo"), button:has-text("Cover photo"), div[role="button"]:has-text("Cover photo")')
+          .locator('div[role="tab"]:has-text("Cover photo"), button:has-text("Cover photo"), div[role="button"]:has-text("Cover photo"), span:has-text("Cover photo"), span:has-text("कवर फोटो")')
           .first();
         if (await coverTab.isVisible({ timeout: 3000 }).catch(() => false)) {
           await coverTab.click();
@@ -329,7 +345,9 @@ export async function uploadReelWithPlaywright({
     // Click Next (to Caption screen)
     onProgress("Moving to Caption details…");
     const nextBtn2 = page
-      .locator('div[role="button"]:has-text("Next"), button:has-text("Next"), div[role="button"]:has-text("Weiter")')
+      .locator(
+        'div[role="dialog"] header div[role="button"]:has-text("Next"), div[role="dialog"] header button:has-text("Next"), div[role="dialog"] div[role="button"]:has-text("Next"), div[role="dialog"] button:has-text("Next"), div[role="dialog"] div[role="button"]:has-text("Weiter"), div[role="dialog"] div[role="button"]:has-text("आगे"), div[role="dialog"] header div[role="button"]:last-child, div[role="dialog"] header button:last-child'
+      )
       .first();
     await nextBtn2.waitFor({ state: "visible", timeout: 25000 });
     await nextBtn2.click();
@@ -340,7 +358,7 @@ export async function uploadReelWithPlaywright({
       onProgress("Typing caption and hashtags…");
       const captionBox = page
         .locator(
-          'div[role="textbox"][aria-label*="caption" i], div[contenteditable="true"][aria-label*="caption" i], div[contenteditable="true"]'
+          'div[role="textbox"][aria-label*="caption" i], div[contenteditable="true"][aria-label*="caption" i], div[role="dialog"] div[contenteditable="true"]'
         )
         .first();
       await captionBox.waitFor({ state: "visible", timeout: 25000 });
@@ -366,7 +384,9 @@ export async function uploadReelWithPlaywright({
     // Auto-click Share
     onProgress("Clicking Share…");
     const shareBtn = page
-      .locator('div[role="button"]:has-text("Share"), button:has-text("Share"), div[role="button"]:has-text("Teilen")')
+      .locator(
+        'div[role="dialog"] header div[role="button"]:has-text("Share"), div[role="dialog"] header button:has-text("Share"), div[role="dialog"] div[role="button"]:has-text("Share"), div[role="dialog"] button:has-text("Share"), div[role="dialog"] div[role="button"]:has-text("Teilen"), div[role="dialog"] div[role="button"]:has-text("शेयर"), div[role="dialog"] header div[role="button"]:last-child, div[role="dialog"] header button:last-child'
+      )
       .first();
     await shareBtn.waitFor({ state: "visible", timeout: 25000 });
     await shareBtn.click();
