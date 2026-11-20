@@ -880,7 +880,10 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     addLabel = "Add moment",
     applyLabel = "Apply Changes",
     onSyncToLive = null,
-    extraAction = null
+    extraAction = null,
+    qualities = null,
+    quality = null,
+    onQualityChange = null
   }) {
     const totalDuration = Math.max(10, duration);
     const [start, setStart] = useState(() => Math.max(0, Math.min(startTime, totalDuration - 3)));
@@ -888,16 +891,21 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
     const [playhead, setPlayhead] = useState(() => start);
     const [dragging, setDragging] = useState(null);
     const [isPlayingLoop, setIsPlayingLoop] = useState(false);
-    const [selectedQuality, setSelectedQuality] = useState(() => {
+    const [localQuality, setLocalQuality] = useState(() => {
       try {
         return localStorage.getItem("fivestar_preferred_quality") || "best";
       } catch {
         return "best";
       }
     });
+    const selectedQuality = quality !== null && quality !== undefined ? quality : localQuality;
 
     const handleQualityChange = (val) => {
-      setSelectedQuality(val);
+      if (typeof onQualityChange === "function") {
+        onQualityChange(val);
+      } else {
+        setLocalQuality(val);
+      }
       try {
         localStorage.setItem("fivestar_preferred_quality", val);
       } catch {}
@@ -1397,13 +1405,18 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                           borderRadius: "6px",
                           cursor: "pointer"
                         },
-                        children: [
-                          jsx("option", { value: "best", style: { background: "#18181b", color: "#fff" }, children: "✨ Best (1440p/4K Highest)" }),
-                          jsx("option", { value: "1440", style: { background: "#18181b", color: "#fff" }, children: "1440p60 HD (2K)" }),
-                          jsx("option", { value: "1080", style: { background: "#18181b", color: "#fff" }, children: "1080p60 HD" }),
-                          jsx("option", { value: "720", style: { background: "#18181b", color: "#fff" }, children: "720p60 HD" }),
-                          jsx("option", { value: "480", style: { background: "#18181b", color: "#fff" }, children: "480p SD (Fast)" })
-                        ]
+                        children: (qualities && qualities.length ? qualities : [
+                          { id: "best", label: "✨ Best Available (Highest Quality)" },
+                          { id: "1080", label: "1080p60 HD" },
+                          { id: "720", label: "720p60" },
+                          { id: "480", label: "480p" },
+                          { id: "360", label: "360p" }
+                        ]).map(q => jsx("option", {
+                          key: q.id,
+                          value: q.id,
+                          style: { background: "#18181b", color: "#fff" },
+                          children: q.label
+                        }))
                       })
                     ]
                   })
@@ -1996,8 +2009,8 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 ]
               }),
 
-              // Kick Player Mode Switcher
-              streamInfo.platform === "kick" && jsxs("div", {
+              // Native DVR Player Mode Switcher (Kick & YouTube)
+              (streamInfo.hlsStreamUrl || streamInfo.platform === "kick") && jsxs("div", {
                 style: { display: "flex", gap: "8px", marginBottom: "12px", alignItems: "center", flexWrap: "wrap" },
                 children: [
                   jsx("button", {
@@ -2010,21 +2023,21 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                     type: "button",
                     className: `btn btn-small ${useOfficialEmbed ? "btn-primary" : "btn-ghost"}`,
                     onClick: () => setUseOfficialEmbed(true),
-                    children: "🌐 Kick Web Embed"
+                    children: streamInfo.platform === "kick" ? "🌐 Kick Web Embed" : (streamInfo.platform === "youtube" ? "🌐 YouTube Embed" : "🌐 Platform Embed")
                   }),
                   jsx("span", {
                     style: { color: "#a1a1aa", fontSize: "12px", marginLeft: "auto" },
-                    children: "⚡ Native DVR Player enables real-time scrubbing backwards and dragging handles to clip."
+                    children: "⚡ Native DVR Player avoids embed restrictions and enables real-time scrubbing and clipping."
                   })
                 ]
               }),
 
-              // Live Player (Native HLS DVR for Kick, iframe for YouTube/Twitch)
+              // Live Player (Native HLS DVR for Kick & YouTube, fallback to iframe)
               jsxs("div", {
                 className: "live-player-frame",
                 children: [
-                  (streamInfo.platform === "kick" && streamInfo.hlsStreamUrl && !useOfficialEmbed) ? jsx(HlsVideoPlayer, {
-                    key: `kick_dvr_${streamInfo.channel}`,
+                  (streamInfo.hlsStreamUrl && !useOfficialEmbed) ? jsx(HlsVideoPlayer, {
+                    key: `dvr_${streamInfo.platform}_${streamInfo.videoId || streamInfo.channel}`,
                     src: streamInfo.hlsStreamUrl,
                     startTime: trim.start,
                     endTime: trim.end,
@@ -2047,6 +2060,9 @@ export function createLiveTrimComponents({ React, jsx, jsxs, Fragment, api, rout
                 endTime: trim.end,
                 isLive: true,
                 bufferBounds,
+                qualities: streamInfo?.qualities,
+                quality: selectedQuality,
+                onQualityChange: (newQ) => setSelectedQuality(newQ),
                 addLabel: isSlicing ? "Processing..." : (isLiveSync ? "⚡ Create Clip Now (Live)" : "⚡ Create Clip from Selection"),
                 onTrimChange: (newTrim) => {
                   setTrim(newTrim);

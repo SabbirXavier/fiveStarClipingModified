@@ -10,6 +10,8 @@ import { LiveBufferManager } from "./live-buffer.mjs";
 
 // Memory cache for Kick live stream masters and active channels
 const kickStreamCache = new Map();
+// Memory cache for YouTube live stream manifests
+const ytStreamCache = new Map();
 
 async function resolveKickStream(channel) {
   const ch = String(channel || "").trim().toLowerCase();
@@ -83,13 +85,9 @@ async function extractYouTubeLiveDvrSegment({
   console.log(`[YouTube DVR Engine] Slicing exact DVR sequence: ${url} (start: ${start}s, end: ${end}s, rewound: ${rewoundSec}s, dur: ${dur}s, quality: ${quality || "best"})...`);
 
   const qNum = parseInt(quality, 10);
-  let formatSelector = "301/300/94/93/best";
-  if (!isNaN(qNum) && qNum >= 1080) {
-    formatSelector = "301/300/best";
-  } else if (!isNaN(qNum) && qNum >= 720) {
-    formatSelector = "300/94/best";
-  } else if (!isNaN(qNum) && qNum > 0) {
-    formatSelector = `bv*[height<=${qNum}]+ba/b[height<=${qNum}]/94/93/best`;
+  let formatSelector = "bv*[protocol^=m3u8]+ba[protocol^=m3u8]/b[protocol^=m3u8]/301/300/94/93/best";
+  if (!isNaN(qNum) && qNum > 0) {
+    formatSelector = `bv*[height<=${qNum}][protocol^=m3u8]+ba[protocol^=m3u8]/b[height<=${qNum}][protocol^=m3u8]/bv*[height<=${qNum}]+ba/b[height<=${qNum}]/301/300/94/93/best`;
   }
 
   const gArgs = [
@@ -291,7 +289,7 @@ export function registerLiveRoutes(app, deps) {
 
   // Ensure persistent live stream project exists, has proper metadata, and aggregates clips
   function ensureLiveProject(streamMeta) {
-    const { url = "", videoId = "", platform = "youtube", channel = "", title = "", thumbnail = "", duration = 0 } = streamMeta;
+    const { url = "", videoId = "", platform = "youtube", channel = "", title = "", thumbnail = "", duration = 0, language = "" } = streamMeta;
     const targetId = getLiveProjectId(url, videoId, platform, channel);
     let project = getProject(targetId);
 
@@ -301,11 +299,17 @@ export function registerLiveRoutes(app, deps) {
       if (fs.existsSync(pFile)) {
         try {
           project = JSON.parse(fs.readFileSync(pFile, "utf8"));
+          if (language && !project.source?.language && project.source) {
+            project.source.language = language;
+          }
           saveProject(project, false);
         } catch (e) {
           console.warn(`[Live Clipper] Error loading project ${targetId}:`, e.message);
         }
       }
+    } else if (language && project.source && !project.source.language) {
+      project.source.language = language;
+      saveProject(project, false);
     }
 
     // Find all existing projects (in-memory or on disk) to check for legacy scattered clips
@@ -349,7 +353,8 @@ export function registerLiveRoutes(app, deps) {
           duration: duration || 0,
           thumbnail: thumbnail || "",
           id: videoId || targetId,
-          videoId: videoId || targetId
+          videoId: videoId || targetId,
+          language: language || ""
         },
         status: "ready",
         steps: [],
@@ -693,6 +698,14 @@ export function registerLiveRoutes(app, deps) {
         console.warn("[Live Clipper] Error ensuring live project in info:", projErr.message);
       }
 
+      if (platform === "youtube" && videoId && streamUrl) {
+        ytStreamCache.set(videoId, { videoId, streamUrl, fetchedAt: Date.now() });
+      }
+
+      const hlsStreamUrl = platform === "kick"
+        ? (kickInfo?.hlsProxyUrl || null)
+        : (platform === "youtube" && videoId ? `/api/live/yt-hls/${videoId}/master.m3u8` : streamUrl);
+
       return res.json({
         ok: true,
         projectId: liveProject ? liveProject.id : getLiveProjectId(url, videoId, platform, channel),
@@ -707,6 +720,7 @@ export function registerLiveRoutes(app, deps) {
         duration,
         url: meta.webpage_url || url,
         streamUrl,
+        hlsStreamUrl,
         qualities,
         bufferStatus: initialBufferStatus
       });
@@ -804,6 +818,82 @@ export function registerLiveRoutes(app, deps) {
     }
   });
 
+  // ==========================================
+  // YouTube Live HLS Proxy Endpoints (CORS-friendly, Full Native DVR Scrubbing)
+  // ==========================================
+
+  // Proxy YouTube Live HLS Master Playlist
+  app.get("/api/live/yt-hls/:videoId/master.m3u8", async (req, res) => {
+    try {
+      const { videoId } = req.params;
+      let cached = ytStreamCache.get(videoId);
+      if (!cached || Date.now() - cached.fetchedAt > 300e3) {
+        const ytArgs = [
+          "--no-warnings",
+          "--no-progress",
+          "--js-runtimes", "node",
+          "--extractor-args", "youtube:player_client=android,web;formats=incomplete",
+          "-g",
+          `https://www.youtube.com/watch?v=${videoId}`
+        ];
+        const resG = await ytDlpRunner(ytArgs, { timeout: 25e3 });
+        if (resG.code === 0 && resG.stdout.trim()) {
+          const sUrl = resG.stdout.trim().split(/\r?\n/)[0].trim();
+          cached = { videoId, streamUrl: sUrl, fetchedAt: Date.now() };
+          ytStreamCache.set(videoId, cached);
+        }
+      }
+
+      if (!cached?.streamUrl) {
+        return res.status(404).send("YouTube live stream HLS manifest not found.");
+      }
+
+      const upstream = await fetch(cached.streamUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      const text = await upstream.text();
+
+      // In YouTube m3u8, segment lines start with http(s)
+      const rewritten = text.replace(/^(https?:\/\/[^\r\n]+)$/gm, (fullUrl) => {
+        return `/api/live/yt-hls/${videoId}/segment?u=${encodeURIComponent(fullUrl)}`;
+      });
+
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "no-cache");
+      return res.send(rewritten);
+    } catch (e) {
+      console.error("[YouTube HLS Proxy] Master manifest error:", e.message);
+      return res.status(500).send("Error fetching YouTube master manifest");
+    }
+  });
+
+  // Proxy YouTube Live Video Segment
+  app.get("/api/live/yt-hls/:videoId/segment", async (req, res) => {
+    try {
+      const u = String(req.query?.u || "").trim();
+      if (!u || !u.startsWith("http")) {
+        return res.status(400).send("Invalid segment URL");
+      }
+      const upstream = await fetch(u, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      if (!upstream.ok) return res.status(upstream.status).end();
+      res.setHeader("Content-Type", "video/MP2T");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      const stream = Readable.fromWeb(upstream.body);
+      stream.on("error", () => {});
+      res.on("close", () => {
+        try { stream.destroy(); } catch {}
+      });
+      stream.pipe(res);
+    } catch (e) {
+      return res.status(500).send(e.message);
+    }
+  });
+
   // 2. Slice specific DVR window and create standard Fivestar project & clip (Instant Mode)
   app.post("/api/live/slice", async (req, res) => {
     try {
@@ -843,7 +933,8 @@ export function registerLiveRoutes(app, deps) {
         channel,
         title,
         thumbnail: req.body?.thumbnail || "",
-        duration: streamDuration || end
+        duration: streamDuration || end,
+        language: req.body?.language || ""
       });
 
       const clipId = "clive" + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
