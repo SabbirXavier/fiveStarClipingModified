@@ -93,10 +93,25 @@ function formatGoogleError(data, fallback) {
 }
 
 function formatMetaError(data, fallback) {
-  const err = data?.error;
-  if (!err) return fallback;
-  const msg = err.error_user_msg || err.message || fallback;
-  return err.code ? `${msg} (Meta error ${err.code})` : msg;
+  if (!data) return fallback;
+  if (typeof data === "string") {
+    const trimmed = data.trim();
+    return trimmed.length > 0 && trimmed.length < 300 ? trimmed : fallback;
+  }
+  const err = data.error;
+  if (err && typeof err === "object") {
+    const msg = err.error_user_msg || err.error_user_title || err.message || fallback;
+    const code = err.code ? ` (Meta error ${err.code}${err.error_subcode ? `:${err.error_subcode}` : ""})` : "";
+    const debug = err.debug_info ? ` [${err.debug_info}]` : "";
+    return `${msg}${code}${debug}`;
+  }
+  if (typeof data.message === "string" && data.message) {
+    return data.message;
+  }
+  if (typeof data.debug_info === "string" && data.debug_info) {
+    return data.debug_info;
+  }
+  return fallback;
 }
 
 function cleanYouTubeTags(raw) {
@@ -1283,25 +1298,57 @@ export function registerSocialRoutes(app, deps) {
         const uploadUri =
           createData.uri || `https://rupload.facebook.com/ig-api-upload/${GRAPH_VERSION}/${containerId}`;
 
-        // Step 2: Stream local MP4 binary directly to rupload.facebook.com
-        const uploadResp = await fetch(uploadUri, {
-          method: "POST",
-          headers: {
-            Authorization: `OAuth ${ig.accessToken}`,
-            offset: "0",
-            file_size: String(resolved.size),
-            "Content-Type": "application/octet-stream",
-            "Content-Length": String(resolved.size),
-          },
-          body: fs.createReadStream(resolved.filePath),
-          duplex: "half",
-        });
-        const uploadData = parseJsonSafe(await uploadResp.text());
-        if (!uploadResp.ok || uploadData?.error || uploadData?.success === false) {
-          throw makeError(
-            uploadResp.status || 500,
-            formatMetaError(uploadData, `Instagram rejected the MP4 binary upload (HTTP ${uploadResp.status}).`)
-          );
+        // Step 2: Resumable chunked upload of local MP4 binary to rupload.facebook.com
+        // Uploads the video in 8MB chunks with exact byte ranges so large Reels (up to 100MB+)
+        // do not get dropped or rejected with HTTP 400 Bad Request by Meta's rupload gateway.
+        const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB chunks
+        let currentOffset = 0;
+        const totalSize = resolved.size;
+        const fd = fs.openSync(resolved.filePath, "r");
+
+        try {
+          while (currentOffset < totalSize) {
+            const bytesToRead = Math.min(CHUNK_SIZE, totalSize - currentOffset);
+            const chunkBuf = Buffer.alloc(bytesToRead);
+            fs.readSync(fd, chunkBuf, 0, bytesToRead, currentOffset);
+
+            const chunkResp = await fetch(uploadUri, {
+              method: "POST",
+              headers: {
+                Authorization: `OAuth ${ig.accessToken}`,
+                offset: String(currentOffset),
+                file_size: String(totalSize),
+                "Content-Type": "application/octet-stream",
+                "Content-Length": String(bytesToRead),
+              },
+              body: chunkBuf,
+            });
+
+            const chunkRaw = await chunkResp.text();
+            const chunkData = parseJsonSafe(chunkRaw);
+
+            if (!chunkResp.ok || chunkData?.error || chunkData?.success === false) {
+              console.error("[Meta Graph API] rupload error at offset", currentOffset, chunkResp.status, chunkRaw);
+              throw makeError(
+                chunkResp.status || 500,
+                formatMetaError(
+                  chunkData || chunkRaw,
+                  `Instagram rejected MP4 binary upload at offset ${currentOffset} (HTTP ${chunkResp.status}).`
+                )
+              );
+            }
+
+            if (
+              typeof chunkData?.offset === "number" ||
+              (typeof chunkData?.offset === "string" && !isNaN(Number(chunkData.offset)))
+            ) {
+              currentOffset = Number(chunkData.offset);
+            } else {
+              currentOffset += bytesToRead;
+            }
+          }
+        } finally {
+          fs.closeSync(fd);
         }
 
         // Step 3: Poll container until Meta finishes video processing
